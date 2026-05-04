@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
-import { PROGRAMS, SESSION_COLORS, SESSION_LABELS, SessionType } from '@/lib/program'
+import { PROGRAMS, SESSION_COLORS, SESSION_LABELS, SessionType, ProfileType } from '@/lib/program'
 
 interface SetData { kg: string; reps: string; done: boolean }
 type ExData = Record<number, SetData[]>
@@ -16,7 +16,7 @@ export default function SessionPage() {
   const params = useParams()
   const type = params.type as SessionType
 
-  const [profile, setProfile] = useState<{ name: string } | null>(null)
+  const [profile, setProfile] = useState<{ name: string; profile_type: ProfileType } | null>(null)
   const [date, setDate] = useState(today())
   const [exData, setExData] = useState<ExData>({})
   const [note, setNote] = useState('')
@@ -25,19 +25,26 @@ export default function SessionPage() {
 
   const prog = PROGRAMS[type]
   const colors = SESSION_COLORS[type]
+  const pType: ProfileType = profile?.profile_type || 'male'
 
   useEffect(() => {
     const supabase = createClient()
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.replace('/login'); return }
-      const { data: prof } = await supabase.from('profiles').select('name').eq('id', session.user.id).single()
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('name, profile_type')
+        .eq('id', session.user.id)
+        .single()
       setProfile(prof)
+
+      const pt: ProfileType = prof?.profile_type || 'male'
+      const init: ExData = {}
+      prog.forEach((ex, i) => {
+        init[i] = Array.from({ length: ex.defaultSets[pt] }, () => ({ kg: '', reps: '', done: false }))
+      })
+      setExData(init)
     })
-    const init: ExData = {}
-    prog.forEach((ex, i) => {
-      init[i] = Array.from({ length: ex.defaultSets }, () => ({ kg: '', reps: '', done: false }))
-    })
-    setExData(init)
   }, [type, router])
 
   const updateSet = useCallback((exIdx: number, setIdx: number, field: keyof SetData, val: string | boolean) => {
@@ -104,7 +111,11 @@ export default function SessionPage() {
     setTimeout(() => router.replace('/dashboard'), 1200)
   }
 
-  if (!prog) return null
+  if (!prog || !profile) return (
+    <div className="flex items-center justify-center min-h-screen">
+      <div className="w-8 h-8 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
+    </div>
+  )
 
   return (
     <div className="max-w-lg mx-auto px-4 py-6 pb-32">
@@ -116,7 +127,9 @@ export default function SessionPage() {
         </button>
         <div className="flex-1">
           <h1 className="text-base font-semibold leading-tight">{SESSION_LABELS[type]}</h1>
-          {profile && <p className="text-xs text-gray-500">{profile.name}</p>}
+          <p className="text-xs text-gray-500">
+            {profile.name} · {pType === 'male' ? 'Prise de muscle' : 'Perte de gras / Toning'}
+          </p>
         </div>
         <input
           type="date"
@@ -148,14 +161,16 @@ export default function SessionPage() {
           const sets = exData[exIdx] || []
           const allDone = sets.length > 0 && sets.every(s => s.done)
           const anyDone = sets.some(s => s.done)
+          const exNote = ex.notes?.[pType]
           return (
             <div key={exIdx} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
               <div className="flex items-start justify-between px-4 py-3 border-b border-gray-50">
                 <div>
                   <p className="text-sm font-medium text-gray-900">{ex.name}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">Objectif : {ex.targetMe} / {ex.targetHer}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Objectif : {ex.target[pType]}</p>
+                  {exNote && <p className="text-xs text-teal-600 mt-0.5 italic">{exNote}</p>}
                 </div>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium mt-0.5 ${
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium mt-0.5 flex-shrink-0 ${
                   allDone ? 'bg-teal-50 text-teal-700' :
                   anyDone ? 'bg-amber-50 text-amber-700' :
                   'bg-gray-100 text-gray-400'
@@ -175,7 +190,7 @@ export default function SessionPage() {
                 {sets.map((s, setIdx) => {
                   const vol = s.done && s.kg && s.reps ? Math.round(parseFloat(s.kg) * parseInt(s.reps)) : null
                   return (
-                    <div key={setIdx} className={`grid grid-cols-12 gap-2 items-center py-1.5 border-t border-gray-50 ${s.done ? 'opacity-70' : ''}`}>
+                    <div key={setIdx} className={`grid grid-cols-12 gap-2 items-center py-1.5 border-t border-gray-50 ${s.done ? 'opacity-60' : ''}`}>
                       <div className="col-span-2 text-xs text-gray-400 font-medium">{setIdx + 1}</div>
                       <div className="col-span-4">
                         <input
@@ -241,7 +256,7 @@ export default function SessionPage() {
         <button
           onClick={handleSave}
           disabled={saving || saved || setsDone === 0}
-          className="flex-2 flex-grow-[2] py-3 rounded-xl bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 disabled:opacity-40 transition-colors"
+          className="flex-[2] py-3 rounded-xl bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 disabled:opacity-40 transition-colors"
         >
           {saved ? 'Enregistrée ✓' : saving ? 'Sauvegarde...' : 'Enregistrer la séance'}
         </button>

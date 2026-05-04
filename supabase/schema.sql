@@ -4,6 +4,7 @@ create table profiles (
   id uuid references auth.users on delete cascade primary key,
   email text,
   name text,
+  profile_type text default 'male' check (profile_type in ('male', 'female')),
   created_at timestamp with time zone default now()
 );
 

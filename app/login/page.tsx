@@ -9,6 +9,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [name, setName] = useState('')
+  const [profileType, setProfileType] = useState<'male' | 'female'>('male')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -20,10 +21,8 @@ export default function LoginPage() {
     if (mode === 'signup') {
       const { error: signUpError } = await supabase.auth.signUp({ email, password })
       if (signUpError) { setError(signUpError.message); setLoading(false); return }
-      if (name) {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (user) await supabase.from('profiles').update({ name }).eq('id', user.id)
-      }
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) await supabase.from('profiles').update({ name, profile_type: profileType }).eq('id', user.id)
     } else {
       const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
       if (signInError) { setError('Email ou mot de passe incorrect.'); setLoading(false); return }
@@ -42,17 +41,50 @@ export default function LoginPage() {
 
         <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
           {mode === 'signup' && (
-            <div>
-              <label className="block text-sm text-gray-600 mb-1">Prénom</label>
-              <input
-                type="text"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                placeholder="Ton prénom"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-              />
-            </div>
+            <>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Prénom</label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="Ton prénom"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-2">Programme</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setProfileType('male')}
+                    className={`py-2.5 rounded-xl border text-sm font-medium transition-colors ${
+                      profileType === 'male'
+                        ? 'bg-teal-600 text-white border-teal-600'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                    }`}
+                  >
+                    Prise de muscle
+                  </button>
+                  <button
+                    onClick={() => setProfileType('female')}
+                    className={`py-2.5 rounded-xl border text-sm font-medium transition-colors ${
+                      profileType === 'female'
+                        ? 'bg-teal-600 text-white border-teal-600'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                    }`}
+                  >
+                    Perte de gras / Toning
+                  </button>
+                </div>
+                <p className="text-xs text-gray-400 mt-1.5">
+                  {profileType === 'male'
+                    ? 'Charges lourdes, moins de reps, focus hypertrophie'
+                    : 'Plus de reps, cardio, exercices adaptés fessiers/gainage'}
+                </p>
+              </div>
+            </>
           )}
+
           <div>
             <label className="block text-sm text-gray-600 mb-1">Email</label>
             <input
