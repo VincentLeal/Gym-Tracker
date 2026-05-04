@@ -1,59 +1,24 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 
 interface Props {
   name: string
+  gifId: string
   youtube: string
   tip: string
 }
 
-// Maps exercise names to ExerciseDB search terms (English)
-const EXERCISE_SEARCH_MAP: Record<string, string> = {
-  'Développé couché':             'barbell bench press',
-  'Développé incliné haltères':   'incline dumbbell press',
-  'Élévations latérales':         'lateral raise',
-  'Développé militaire':          'overhead press',
-  'Dips / Push-down triceps':     'triceps pushdown',
-  'Tractions / Tirage vertical':  'pull up',
-  'Rowing barre / haltère':       'barbell row',
-  'Tirage horizontal poulie':     'seated cable row',
-  'Face pull':                    'face pull',
-  'Curl biceps haltères':         'dumbbell bicep curl',
-  'Squat':                        'barbell squat',
-  'Presse à cuisses':             'leg press',
-  'Hip thrust':                   'hip thrust',
-  'Leg curl couché':              'lying leg curl',
-  'Planche + Crunch câble':       'plank',
-}
+const GIF_BASE = 'https://static.exercisedb.dev/media'
 
-export default function ExerciseDemo({ name, youtube, tip }: Props) {
+export default function ExerciseDemo({ name, gifId, youtube, tip }: Props) {
   const [open, setOpen] = useState(false)
-  const [gifUrl, setGifUrl] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
   const [gifError, setGifError] = useState(false)
 
+  const gifUrl = `${GIF_BASE}/${gifId}.gif`
   const ytId = youtube.match(/(?:v=|youtu\.be\/)([^&?/]+)/)?.[1]
-  const searchTerm = EXERCISE_SEARCH_MAP[name] || name
-
-  useEffect(() => {
-    if (!open || gifUrl || loading) return
-    setLoading(true)
-    setGifError(false)
-
-    const encoded = encodeURIComponent(searchTerm)
-    fetch(`/api/exercise-gif?name=${encoded}`)
-      .then(r => r.json())
-      .then((data: { gifUrl: string | null }) => {
-        if (data?.gifUrl) setGifUrl(data.gifUrl)
-        else setGifError(true)
-      })
-      .catch(() => setGifError(true))
-      .finally(() => setLoading(false))
-  }, [open, gifUrl, loading, searchTerm])
 
   return (
     <>
-      {/* Trigger */}
       <button
         onClick={() => setOpen(true)}
         className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors flex items-center justify-center text-gray-400 hover:text-gray-600"
@@ -67,53 +32,35 @@ export default function ExerciseDemo({ name, youtube, tip }: Props) {
         </svg>
       </button>
 
-      {/* Modal */}
       {open && (
-        <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
-          onClick={() => setOpen(false)}
-        >
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={() => setOpen(false)}>
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
           <div
             className="relative w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl"
             onClick={e => e.stopPropagation()}
           >
-            {/* Handle bar mobile */}
             <div className="flex justify-center pt-3 pb-1 sm:hidden">
               <div className="w-10 h-1 bg-gray-200 rounded-full" />
             </div>
 
-            {/* Header */}
             <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
               <h2 className="text-base font-semibold text-gray-900 pr-4">{name}</h2>
-              <button
-                onClick={() => setOpen(false)}
-                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400"
-              >
+              <button onClick={() => setOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
-            {/* Media area */}
-            <div className="bg-gray-50 aspect-video w-full overflow-hidden relative">
-              {loading && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-8 h-8 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
-                </div>
-              )}
-
-              {!loading && gifUrl && !gifError && (
+            <div className="bg-gray-50 aspect-video w-full overflow-hidden">
+              {!gifError ? (
                 <img
                   src={gifUrl}
                   alt={`Démonstration ${name}`}
                   className="w-full h-full object-contain bg-white"
                   onError={() => setGifError(true)}
                 />
-              )}
-
-              {!loading && (gifError || !gifUrl) && ytId && (
+              ) : ytId ? (
                 <iframe
                   src={`https://www.youtube.com/embed/${ytId}?autoplay=0&rel=0&modestbranding=1`}
                   title={name}
@@ -121,16 +68,11 @@ export default function ExerciseDemo({ name, youtube, tip }: Props) {
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   allowFullScreen
                 />
-              )}
-
-              {!loading && gifError && !ytId && (
-                <div className="flex items-center justify-center h-full text-gray-400 text-sm">
-                  Démo non disponible
-                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full text-gray-400 text-sm">Démo non disponible</div>
               )}
             </div>
 
-            {/* Tip */}
             <div className="px-5 py-4">
               <div className="flex gap-3 items-start bg-teal-50 rounded-xl p-3">
                 <span className="text-lg flex-shrink-0">💡</span>
@@ -138,7 +80,6 @@ export default function ExerciseDemo({ name, youtube, tip }: Props) {
               </div>
             </div>
 
-            {/* YouTube link */}
             <div className="px-5 pb-5">
               <a
                 href={youtube}

@@ -7,7 +7,8 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
   themeColor: '#0f6e56',
   viewport: 'width=device-width, initial-scale=1, maximum-scale=1',
-  appleWebApp: { capable: true, statusBarStyle: 'default', title: 'Gym Tracker' },
+  icons: { icon: '/icon.svg', apple: '/icon.svg' },
+  other: { 'mobile-web-app-capable': 'yes' },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
