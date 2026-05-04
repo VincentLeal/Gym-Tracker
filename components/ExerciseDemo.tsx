@@ -26,11 +26,6 @@ const EXERCISE_SEARCH_MAP: Record<string, string> = {
   'Planche + Crunch câble':       'plank',
 }
 
-interface ExerciseDBResult {
-  gifUrl: string
-  name: string
-}
-
 export default function ExerciseDemo({ name, youtube, tip }: Props) {
   const [open, setOpen] = useState(false)
   const [gifUrl, setGifUrl] = useState<string | null>(null)
@@ -46,10 +41,10 @@ export default function ExerciseDemo({ name, youtube, tip }: Props) {
     setGifError(false)
 
     const encoded = encodeURIComponent(searchTerm)
-    fetch(`https://exercisedb.dev/api/exercises/name/${encoded}?limit=1`)
+    fetch(`/api/exercise-gif?name=${encoded}`)
       .then(r => r.json())
-      .then((data: ExerciseDBResult[]) => {
-        if (data?.[0]?.gifUrl) setGifUrl(data[0].gifUrl)
+      .then((data: { gifUrl: string | null }) => {
+        if (data?.gifUrl) setGifUrl(data.gifUrl)
         else setGifError(true)
       })
       .catch(() => setGifError(true))
