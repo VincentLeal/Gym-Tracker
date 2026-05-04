@@ -177,7 +177,7 @@ export default function SessionPage() {
                     {/* Demo button */}
                     <ExerciseDemo
                       name={ex.name}
-                      gifId={ex.demo.gifId}
+                      gifFile={ex.demo.gifFile}
                       youtube={ex.demo.youtube}
                       tip={ex.demo.tip}
                     />

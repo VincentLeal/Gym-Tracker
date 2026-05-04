@@ -7,7 +7,7 @@ export interface Exercise {
   defaultSets: Record<ProfileType, number>
   notes?: Record<ProfileType, string>
   demo: {
-    gifId: string   // ID sur static.exercisedb.dev/media/{id}.gif
+    gifFile: string  // fichier dans /public/gifs/
     youtube: string
     tip: string
   }
@@ -22,7 +22,7 @@ export const PROGRAMS: Record<SessionType, Exercise[]> = {
       defaultSets: { male: 4, female: 3 },
       notes: { male: 'Barre', female: 'Haltères légers ou barre légère' },
       demo: {
-        gifId: 'EIeI8Vf',
+        gifFile: 'bench-press.gif',
         youtube: 'https://www.youtube.com/watch?v=rT7DgCr-3pg',
         tip: 'Omoplates serrées, descends la barre jusqu\'à effleurer la poitrine, coudes à 45°.',
       },
@@ -32,7 +32,7 @@ export const PROGRAMS: Record<SessionType, Exercise[]> = {
       target: { male: '3×10', female: '3×12' },
       defaultSets: { male: 3, female: 3 },
       demo: {
-        gifId: 'Nzal1mj',
+        gifFile: 'incline-dumbbell-press.gif',
         youtube: 'https://www.youtube.com/watch?v=8iPEnn-ltC8',
         tip: 'Banc à 30-45°, haltères alignés avec le milieu de la poitrine, pas les épaules.',
       },
@@ -42,7 +42,7 @@ export const PROGRAMS: Record<SessionType, Exercise[]> = {
       target: { male: '3×15', female: '3×15' },
       defaultSets: { male: 3, female: 3 },
       demo: {
-        gifId: 'QKQMF7j',
+        gifFile: 'lateral-raise.gif',
         youtube: 'https://www.youtube.com/watch?v=3VcKaXpzqRo',
         tip: 'Légère flexion des coudes, monte jusqu\'à l\'horizontale, contrôle la descente.',
       },
@@ -52,7 +52,7 @@ export const PROGRAMS: Record<SessionType, Exercise[]> = {
       target: { male: '3×10', female: '3×12' },
       defaultSets: { male: 3, female: 3 },
       demo: {
-        gifId: 'YkpnPdx',
+        gifFile: 'overhead-press.gif',
         youtube: 'https://www.youtube.com/watch?v=2yjwXTZQDDI',
         tip: 'Gainage abdominal, pousse verticalement, ne creuse pas le dos.',
       },
@@ -63,7 +63,7 @@ export const PROGRAMS: Record<SessionType, Exercise[]> = {
       defaultSets: { male: 3, female: 3 },
       notes: { male: 'Dips lestés si possible', female: 'Push-down câble' },
       demo: {
-        gifId: 'vqoxzZH',
+        gifFile: 'triceps-pushdown.gif',
         youtube: 'https://www.youtube.com/watch?v=2-LAMcpzODU',
         tip: 'Coudes fixes le long du corps, extension complète, pince les triceps en bas.',
       },
@@ -76,7 +76,7 @@ export const PROGRAMS: Record<SessionType, Exercise[]> = {
       defaultSets: { male: 4, female: 3 },
       notes: { male: 'Tractions', female: 'Tirage poulie haute machine' },
       demo: {
-        gifId: 'qxnfXg0',
+        gifFile: 'pull-up.gif',
         youtube: 'https://www.youtube.com/watch?v=eGo4IYlbE5g',
         tip: 'Tire les coudes vers les hanches, pas les épaules vers les oreilles.',
       },
@@ -87,7 +87,7 @@ export const PROGRAMS: Record<SessionType, Exercise[]> = {
       defaultSets: { male: 4, female: 3 },
       notes: { male: 'Rowing barre', female: 'Haltère unilatéral' },
       demo: {
-        gifId: 'Fxgrgmw',
+        gifFile: 'barbell-row.webp',
         youtube: 'https://www.youtube.com/watch?v=roCP6wCXPqo',
         tip: 'Dos plat, tire le coude vers le plafond, contracte l\'omoplate en fin de mouvement.',
       },
@@ -97,7 +97,7 @@ export const PROGRAMS: Record<SessionType, Exercise[]> = {
       target: { male: '3×12-15', female: '3×12-15' },
       defaultSets: { male: 3, female: 3 },
       demo: {
-        gifId: 'K0gJRkq',
+        gifFile: 'seated-cable-row.gif',
         youtube: 'https://www.youtube.com/watch?v=GZbfZ033f74',
         tip: 'Reste droit, ramène les coudes derrière le dos, ne te penche pas en arrière.',
       },
@@ -107,7 +107,7 @@ export const PROGRAMS: Record<SessionType, Exercise[]> = {
       target: { male: '3×15', female: '3×15' },
       defaultSets: { male: 3, female: 3 },
       demo: {
-        gifId: 'X9wGBkq',
+        gifFile: 'face-pull.gif',
         youtube: 'https://www.youtube.com/watch?v=rep-qVOkqgk',
         tip: 'Poulie haute, tire vers le visage en écartant les coudes, excellent pour la coiffe.',
       },
@@ -117,7 +117,7 @@ export const PROGRAMS: Record<SessionType, Exercise[]> = {
       target: { male: '3×12', female: '3×12' },
       defaultSets: { male: 3, female: 3 },
       demo: {
-        gifId: 'Fvzbe1Y',
+        gifFile: 'bicep-curl.gif',
         youtube: 'https://www.youtube.com/watch?v=ykJmrZ5v0Oo',
         tip: 'Coudes fixes, supine la main en montant, descente lente et contrôlée.',
       },
@@ -130,7 +130,7 @@ export const PROGRAMS: Record<SessionType, Exercise[]> = {
       defaultSets: { male: 4, female: 3 },
       notes: { male: 'Barre', female: 'Goblet squat avec haltère' },
       demo: {
-        gifId: 'PLpqGWD',
+        gifFile: 'squat.gif',
         youtube: 'https://www.youtube.com/watch?v=ultWZbUMPL8',
         tip: 'Pieds écartés, genoux dans l\'axe des orteils, descends jusqu\'au parallèle.',
       },
@@ -140,7 +140,7 @@ export const PROGRAMS: Record<SessionType, Exercise[]> = {
       target: { male: '3×12', female: '3×12' },
       defaultSets: { male: 3, female: 3 },
       demo: {
-        gifId: 'kH4ZBNL',
+        gifFile: 'leg-press.gif',
         youtube: 'https://www.youtube.com/watch?v=IZxyjW7MPJQ',
         tip: 'Pieds hauts = fessiers/ischio, pieds bas = quadriceps. Ne verrouille pas les genoux.',
       },
@@ -151,7 +151,7 @@ export const PROGRAMS: Record<SessionType, Exercise[]> = {
       defaultSets: { male: 3, female: 3 },
       notes: { male: 'Barre ou haltère', female: 'Focus fessiers, amplitude complète' },
       demo: {
-        gifId: 'L9mZfWr',
+        gifFile: 'hip-thrust.gif',
         youtube: 'https://www.youtube.com/watch?v=SEdqd1n0cvg',
         tip: 'Banc sous les omoplates, pousse avec les talons, contracte fort les fessiers en haut.',
       },
@@ -161,7 +161,7 @@ export const PROGRAMS: Record<SessionType, Exercise[]> = {
       target: { male: '3×12', female: '3×12' },
       defaultSets: { male: 3, female: 3 },
       demo: {
-        gifId: 'RGBnwxk',
+        gifFile: 'leg-curl.gif',
         youtube: 'https://www.youtube.com/watch?v=1Tq3QdYUuHs',
         tip: 'Hanches plaquées sur la machine, remonte les talons vers les fesses, descente lente.',
       },
@@ -171,7 +171,7 @@ export const PROGRAMS: Record<SessionType, Exercise[]> = {
       target: { male: '3×45s / 3×15', female: '3×45s / 3×15' },
       defaultSets: { male: 3, female: 3 },
       demo: {
-        gifId: 'HRVqYnB',
+        gifFile: 'plank.gif',
         youtube: 'https://www.youtube.com/watch?v=pSHjTRCQxIw',
         tip: 'Planche : corps aligné, respire. Crunch câble : contracte le ventre, pas le cou.',
       },

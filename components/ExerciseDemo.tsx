@@ -3,18 +3,16 @@ import { useState } from 'react'
 
 interface Props {
   name: string
-  gifId: string
+  gifFile: string
   youtube: string
   tip: string
 }
 
-const GIF_BASE = 'https://static.exercisedb.dev/media'
-
-export default function ExerciseDemo({ name, gifId, youtube, tip }: Props) {
+export default function ExerciseDemo({ name, gifFile, youtube, tip }: Props) {
   const [open, setOpen] = useState(false)
   const [gifError, setGifError] = useState(false)
 
-  const gifUrl = `${GIF_BASE}/${gifId}.gif`
+  const gifUrl = `/gifs/${gifFile}`
   const ytId = youtube.match(/(?:v=|youtu\.be\/)([^&?/]+)/)?.[1]
 
   return (
