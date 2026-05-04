@@ -1,23 +1,64 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 interface Props {
   name: string
-  gif: string
   youtube: string
   tip: string
 }
 
-export default function ExerciseDemo({ name, gif, youtube, tip }: Props) {
+// Maps exercise names to ExerciseDB search terms (English)
+const EXERCISE_SEARCH_MAP: Record<string, string> = {
+  'Développé couché':             'barbell bench press',
+  'Développé incliné haltères':   'incline dumbbell press',
+  'Élévations latérales':         'lateral raise',
+  'Développé militaire':          'overhead press',
+  'Dips / Push-down triceps':     'triceps pushdown',
+  'Tractions / Tirage vertical':  'pull up',
+  'Rowing barre / haltère':       'barbell row',
+  'Tirage horizontal poulie':     'seated cable row',
+  'Face pull':                    'face pull',
+  'Curl biceps haltères':         'dumbbell bicep curl',
+  'Squat':                        'barbell squat',
+  'Presse à cuisses':             'leg press',
+  'Hip thrust':                   'hip thrust',
+  'Leg curl couché':              'lying leg curl',
+  'Planche + Crunch câble':       'plank',
+}
+
+interface ExerciseDBResult {
+  gifUrl: string
+  name: string
+}
+
+export default function ExerciseDemo({ name, youtube, tip }: Props) {
   const [open, setOpen] = useState(false)
+  const [gifUrl, setGifUrl] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
   const [gifError, setGifError] = useState(false)
 
-  // Extract YouTube video ID for embed
   const ytId = youtube.match(/(?:v=|youtu\.be\/)([^&?/]+)/)?.[1]
+  const searchTerm = EXERCISE_SEARCH_MAP[name] || name
+
+  useEffect(() => {
+    if (!open || gifUrl || loading) return
+    setLoading(true)
+    setGifError(false)
+
+    const encoded = encodeURIComponent(searchTerm)
+    fetch(`https://exercisedb.dev/api/exercises/name/${encoded}?limit=1`)
+      .then(r => r.json())
+      .then((data: ExerciseDBResult[]) => {
+        if (data?.[0]?.gifUrl) setGifUrl(data[0].gifUrl)
+        else setGifError(true)
+      })
+      .catch(() => setGifError(true))
+      .finally(() => setLoading(false))
+  }, [open, gifUrl, loading, searchTerm])
 
   return (
     <>
-      {/* Trigger button */}
+      {/* Trigger */}
       <button
         onClick={() => setOpen(true)}
         className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors flex items-center justify-center text-gray-400 hover:text-gray-600"
@@ -34,18 +75,15 @@ export default function ExerciseDemo({ name, gif, youtube, tip }: Props) {
       {/* Modal */}
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-0 sm:px-4"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
           onClick={() => setOpen(false)}
         >
-          {/* Backdrop */}
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
-
-          {/* Sheet */}
           <div
             className="relative w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl"
             onClick={e => e.stopPropagation()}
           >
-            {/* Handle bar (mobile) */}
+            {/* Handle bar mobile */}
             <div className="flex justify-center pt-3 pb-1 sm:hidden">
               <div className="w-10 h-1 bg-gray-200 rounded-full" />
             </div>
@@ -63,16 +101,24 @@ export default function ExerciseDemo({ name, gif, youtube, tip }: Props) {
               </button>
             </div>
 
-            {/* GIF or YouTube embed */}
-            <div className="bg-gray-50 aspect-video w-full overflow-hidden">
-              {!gifError ? (
+            {/* Media area */}
+            <div className="bg-gray-50 aspect-video w-full overflow-hidden relative">
+              {loading && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-8 h-8 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
+
+              {!loading && gifUrl && !gifError && (
                 <img
-                  src={gif}
+                  src={gifUrl}
                   alt={`Démonstration ${name}`}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain bg-white"
                   onError={() => setGifError(true)}
                 />
-              ) : ytId ? (
+              )}
+
+              {!loading && (gifError || !gifUrl) && ytId && (
                 <iframe
                   src={`https://www.youtube.com/embed/${ytId}?autoplay=0&rel=0&modestbranding=1`}
                   title={name}
@@ -80,7 +126,9 @@ export default function ExerciseDemo({ name, gif, youtube, tip }: Props) {
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   allowFullScreen
                 />
-              ) : (
+              )}
+
+              {!loading && gifError && !ytId && (
                 <div className="flex items-center justify-center h-full text-gray-400 text-sm">
                   Démo non disponible
                 </div>
@@ -95,7 +143,7 @@ export default function ExerciseDemo({ name, gif, youtube, tip }: Props) {
               </div>
             </div>
 
-            {/* YouTube fallback link */}
+            {/* YouTube link */}
             <div className="px-5 pb-5">
               <a
                 href={youtube}
