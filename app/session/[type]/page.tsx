@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import { PROGRAMS, SESSION_COLORS, SESSION_LABELS, SessionType, ProfileType } from '@/lib/program'
+import ExerciseDemo from '@/components/ExerciseDemo'
 
 interface SetData { kg: string; reps: string; done: boolean }
 type ExData = Record<number, SetData[]>
@@ -119,6 +120,7 @@ export default function SessionPage() {
 
   return (
     <div className="max-w-lg mx-auto px-4 py-6 pb-32">
+      {/* Header */}
       <div className="flex items-center gap-3 mb-5">
         <button onClick={() => router.back()} className="text-gray-400 hover:text-gray-600">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -139,6 +141,7 @@ export default function SessionPage() {
         />
       </div>
 
+      {/* Stats */}
       <div className="grid grid-cols-3 gap-2 mb-5">
         <div className={`rounded-xl p-3 text-center ${colors.bg}`}>
           <div className={`text-lg font-semibold ${colors.text}`}>{Math.round(totalVol).toLocaleString('fr-FR')}</div>
@@ -156,21 +159,33 @@ export default function SessionPage() {
         </div>
       </div>
 
+      {/* Exercises */}
       <div className="space-y-4">
         {prog.map((ex, exIdx) => {
           const sets = exData[exIdx] || []
           const allDone = sets.length > 0 && sets.every(s => s.done)
           const anyDone = sets.some(s => s.done)
           const exNote = ex.notes?.[pType]
+
           return (
             <div key={exIdx} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+              {/* Exercise header */}
               <div className="flex items-start justify-between px-4 py-3 border-b border-gray-50">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">{ex.name}</p>
+                <div className="flex-1 min-w-0 pr-2">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-gray-900 truncate">{ex.name}</p>
+                    {/* Demo button */}
+                    <ExerciseDemo
+                      name={ex.name}
+                      gif={ex.demo.gif}
+                      youtube={ex.demo.youtube}
+                      tip={ex.demo.tip}
+                    />
+                  </div>
                   <p className="text-xs text-gray-400 mt-0.5">Objectif : {ex.target[pType]}</p>
                   {exNote && <p className="text-xs text-teal-600 mt-0.5 italic">{exNote}</p>}
                 </div>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium mt-0.5 flex-shrink-0 ${
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${
                   allDone ? 'bg-teal-50 text-teal-700' :
                   anyDone ? 'bg-amber-50 text-amber-700' :
                   'bg-gray-100 text-gray-400'
@@ -179,6 +194,7 @@ export default function SessionPage() {
                 </span>
               </div>
 
+              {/* Sets */}
               <div className="px-4 py-2">
                 <div className="grid grid-cols-12 gap-2 mb-2 text-xs text-gray-400 font-medium">
                   <div className="col-span-2">Série</div>
@@ -236,6 +252,7 @@ export default function SessionPage() {
         })}
       </div>
 
+      {/* Note */}
       <div className="mt-5">
         <textarea
           value={note}
@@ -246,6 +263,7 @@ export default function SessionPage() {
         />
       </div>
 
+      {/* Bottom bar */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-4 py-4 flex gap-3">
         <button
           onClick={() => router.back()}
