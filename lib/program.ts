@@ -5,7 +5,7 @@ export interface Exercise {
   name: string
   target: Record<ProfileType, string>
   defaultSets: Record<ProfileType, number>
-  notes?: Record<ProfileType, string>
+  notes?: Partial<Record<ProfileType, string>>
   substituteFor?: ProfileType  // si défini, cet exercice remplace le précédent pour ce profil
   demo: {
     gifFile: string
