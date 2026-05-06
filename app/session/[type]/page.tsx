@@ -157,15 +157,14 @@ export default function SessionPage() {
     })
   }, [])
 
-  // Copy previous set values into current set
-  const copyPrevSet = useCallback((exIdx: number, setIdx: number) => {
-    if (setIdx === 0) return
+  // Copy current set values to next set
+  const copyToNextSet = useCallback((exIdx: number, setIdx: number) => {
     setExData(prev => {
       const next = { ...prev }
       const sets = [...(next[exIdx] || [])]
-      const prev_set = sets[setIdx - 1]
-      if (!prev_set) return prev
-      sets[setIdx] = { ...sets[setIdx], kg: prev_set.kg, reps: prev_set.reps }
+      const current = sets[setIdx]
+      if (!current || !sets[setIdx + 1] || sets[setIdx + 1].done) return prev
+      sets[setIdx + 1] = { ...sets[setIdx + 1], kg: current.kg, reps: current.reps }
       next[exIdx] = sets
       return next
     })
@@ -326,7 +325,7 @@ export default function SessionPage() {
                 </div>
                 {sets.map((s, setIdx) => {
                   const vol = s.done && s.kg && s.reps ? Math.round(parseFloat(s.kg) * parseInt(s.reps)) : null
-                  const hasPrev = setIdx > 0 && (sets[setIdx - 1].kg || sets[setIdx - 1].reps)
+                  const hasNext = setIdx < sets.length - 1 && !sets[setIdx + 1]?.done && (s.kg || s.reps)
                   return (
                     <div key={setIdx} className={`grid grid-cols-12 gap-2 items-center py-1.5 border-t border-gray-50 ${s.done ? 'opacity-60' : ''}`}>
                       <div className="col-span-2 text-xs text-gray-400 font-medium">{setIdx + 1}</div>
@@ -360,10 +359,10 @@ export default function SessionPage() {
                       </div>
                       <div className="col-span-2 flex items-center justify-end gap-1">
                         {vol !== null && <span className="text-xs text-gray-300">{vol}</span>}
-                        {hasPrev && !s.done && (
+                        {hasNext && s.done && (
                           <button
-                            onClick={() => copyPrevSet(exIdx, setIdx)}
-                            title="Copier la série précédente"
+                            onClick={() => copyToNextSet(exIdx, setIdx)}
+                            title="Copier vers la série suivante"
                             className="text-gray-300 hover:text-teal-500 transition-colors"
                           >
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
