@@ -6,8 +6,9 @@ export interface Exercise {
   target: Record<ProfileType, string>
   defaultSets: Record<ProfileType, number>
   notes?: Record<ProfileType, string>
+  substituteFor?: ProfileType  // si défini, cet exercice remplace le précédent pour ce profil
   demo: {
-    gifFile: string  // fichier dans /public/gifs/
+    gifFile: string
     youtube: string
     tip: string
   }
@@ -25,6 +26,18 @@ export const PROGRAMS: Record<SessionType, Exercise[]> = {
         gifFile: 'bench-press.gif',
         youtube: 'https://www.youtube.com/watch?v=rT7DgCr-3pg',
         tip: 'Omoplates serrées, descends la barre jusqu\'à effleurer la poitrine, coudes à 45°.',
+      },
+    },
+    {
+      name: 'Pompes sur genoux',
+      substituteFor: 'female',
+      target: { male: '4×8-10', female: '3×10-15' },
+      defaultSets: { male: 4, female: 3 },
+      notes: { female: 'Substitut au développé couché — progresse vers pompes normales puis barre' },
+      demo: {
+        gifFile: 'knee-push-up.gif',
+        youtube: 'https://www.youtube.com/watch?v=jWxvty2KROs',
+        tip: 'Genoux au sol, corps aligné des genoux aux épaules, descends la poitrine jusqu\'au sol.',
       },
     },
     {
