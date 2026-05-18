@@ -22,77 +22,36 @@ export default function SessionPage() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
-<<<<<<< HEAD
 
   const sessionIdRef = useRef<string | null>(null)
   const userIdRef = useRef<string | null>(null)
 
-=======
-
-  // Session ID created on first set completion — used for auto-save upserts
-  const sessionIdRef = useRef<string | null>(null)
-  const userIdRef = useRef<string | null>(null)
-
-  const rawProg = PROGRAMS[type]
->>>>>>> 5cc02dd29bb0beaa3bd27d68ebd4e4eb0b213e61
   const colors = SESSION_COLORS[type]
   const pType: ProfileType = profile?.profile_type || 'male'
   const prog = getExercisesForProfile(type, pType)
-
-  // Filter program: hide substituteFor exercises that don't match current profile,
-  // and hide the original exercise when a substitute exists for this profile
-  const prog = rawProg.filter((ex, idx) => {
-    if (ex.substituteFor) return ex.substituteFor === pType
-    // Check if next exercise is a substitute for this profile — if so, hide the original
-    const next = rawProg[idx + 1]
-    if (next?.substituteFor === pType) return false
-    return true
-  })
 
   useEffect(() => {
     const supabase = createClient()
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.replace('/login'); return }
       userIdRef.current = session.user.id
-<<<<<<< HEAD
       const { data: prof } = await supabase.from('profiles').select('name, profile_type').eq('id', session.user.id).single()
-=======
-      const { data: prof } = await supabase
-        .from('profiles').select('name, profile_type').eq('id', session.user.id).single()
->>>>>>> 5cc02dd29bb0beaa3bd27d68ebd4e4eb0b213e61
       setProfile(prof)
       const pt: ProfileType = prof?.profile_type || 'male'
-<<<<<<< HEAD
       const exercises = getExercisesForProfile(type, pt)
       const init: ExData = {}
       exercises.forEach((ex, i) => {
         init[i] = Array.from({ length: ex.defaultSets[pt] || 3 }, () => ({ kg: '', reps: '', done: false }))
-=======
-      const filtered = rawProg.filter((ex, idx) => {
-        if (ex.substituteFor) return ex.substituteFor === pt
-        const next = rawProg[idx + 1]
-        if (next?.substituteFor === pt) return false
-        return true
-      })
-      const init: ExData = {}
-      filtered.forEach((ex, i) => {
-        init[i] = Array.from({ length: ex.defaultSets[pt] }, () => ({ kg: '', reps: '', done: false }))
->>>>>>> 5cc02dd29bb0beaa3bd27d68ebd4e4eb0b213e61
       })
       setExData(init)
     })
   }, [type, router])
 
-<<<<<<< HEAD
-=======
-  // Create or get session record in DB
->>>>>>> 5cc02dd29bb0beaa3bd27d68ebd4e4eb0b213e61
   const ensureSession = useCallback(async (): Promise<string | null> => {
     if (sessionIdRef.current) return sessionIdRef.current
     const supabase = createClient()
     const userId = userIdRef.current
     if (!userId) return null
-<<<<<<< HEAD
     const { data, error } = await supabase.from('sessions').insert({
       user_id: userId, session_type: type, session_date: date,
       total_volume: 0, sets_done: 0, sets_total: prog.reduce((s, ex) => s + (ex.defaultSets[pType] || 3), 0), note: '',
@@ -122,62 +81,6 @@ export default function SessionPage() {
     setAutoSaveStatus('saved')
     setTimeout(() => setAutoSaveStatus('idle'), 1500)
   }, [ensureSession, prog, exData])
-=======
-
-    const { data, error } = await supabase.from('sessions').insert({
-      user_id: userId,
-      session_type: type,
-      session_date: date,
-      total_volume: 0,
-      sets_done: 0,
-      sets_total: prog.reduce((s, ex) => s + (exData[prog.indexOf(ex)]?.length || ex.defaultSets[pType]), 0),
-      note: '',
-    }).select().single()
-
-    if (error || !data) return null
-    sessionIdRef.current = data.id
-    return data.id
-  }, [type, date, prog, exData, pType])
-
-  // Auto-save a single set immediately when checked
-  const autoSaveSet = useCallback(async (exIdx: number, setIdx: number, setData: SetData) => {
-    if (!setData.done) return
-    setAutoSaveStatus('saving')
-
-    const sessionId = await ensureSession()
-    if (!sessionId) { setAutoSaveStatus('idle'); return }
-
-    const supabase = createClient()
-    const ex = prog[exIdx]
-
-    // Upsert the set
-    await supabase.from('session_sets').upsert({
-      session_id: sessionId,
-      exercise_index: exIdx,
-      exercise_name: ex.name,
-      set_index: setIdx,
-      weight_kg: setData.kg ? parseFloat(setData.kg) : null,
-      reps: setData.reps ? parseInt(setData.reps) : null,
-      completed: true,
-    }, { onConflict: 'session_id,exercise_index,set_index' })
-
-    // Update session summary
-    const allSets = Object.values(exData).flat()
-    const done = allSets.filter(d => d.done).length + 1
-    const vol = allSets.reduce((s, d) => {
-      if (d.done && d.kg && d.reps) return s + parseFloat(d.kg) * parseInt(d.reps)
-      return s
-    }, 0) + (setData.kg && setData.reps ? parseFloat(setData.kg) * parseInt(setData.reps) : 0)
-
-    await supabase.from('sessions').update({
-      sets_done: done,
-      total_volume: Math.round(vol),
-    }).eq('id', sessionId)
-
-    setAutoSaveStatus('saved')
-    setTimeout(() => setAutoSaveStatus('idle'), 1500)
-  }, [ensureSession, prog, exData, pType])
->>>>>>> 5cc02dd29bb0beaa3bd27d68ebd4e4eb0b213e61
 
   const updateSet = useCallback((exIdx: number, setIdx: number, field: keyof SetData, val: string | boolean) => {
     setExData(prev => {
@@ -185,15 +88,7 @@ export default function SessionPage() {
       const sets = [...(next[exIdx] || [])]
       sets[setIdx] = { ...sets[setIdx], [field]: val }
       next[exIdx] = sets
-<<<<<<< HEAD
       if (field === 'done' && val === true) autoSaveSet(exIdx, setIdx, sets[setIdx])
-=======
-
-      // Auto-save when checkbox is ticked
-      if (field === 'done' && val === true) {
-        autoSaveSet(exIdx, setIdx, sets[setIdx])
-      }
->>>>>>> 5cc02dd29bb0beaa3bd27d68ebd4e4eb0b213e61
       return next
     })
   }, [autoSaveSet])
@@ -202,29 +97,7 @@ export default function SessionPage() {
     setExData(prev => {
       const next = { ...prev }
       const last = next[exIdx]?.[next[exIdx].length - 1]
-<<<<<<< HEAD
       next[exIdx] = [...(next[exIdx] || []), { kg: last?.kg || '', reps: last?.reps || '', done: false }]
-=======
-      // Pre-fill with last set's values
-      next[exIdx] = [...(next[exIdx] || []), {
-        kg: last?.kg || '',
-        reps: last?.reps || '',
-        done: false,
-      }]
-      return next
-    })
-  }, [])
-
-  // Copy current set values to next set
-  const copyToNextSet = useCallback((exIdx: number, setIdx: number) => {
-    setExData(prev => {
-      const next = { ...prev }
-      const sets = [...(next[exIdx] || [])]
-      const current = sets[setIdx]
-      if (!current || !sets[setIdx + 1] || sets[setIdx + 1].done) return prev
-      sets[setIdx + 1] = { ...sets[setIdx + 1], kg: current.kg, reps: current.reps }
-      next[exIdx] = sets
->>>>>>> 5cc02dd29bb0beaa3bd27d68ebd4e4eb0b213e61
       return next
     })
   }, [])
@@ -249,7 +122,6 @@ export default function SessionPage() {
   const handleFinish = async () => {
     setSaving(true)
     const supabase = createClient()
-<<<<<<< HEAD
     if (sessionIdRef.current) {
       await supabase.from('sessions').update({ note, sets_done: setsDone, sets_total: setsTotal, total_volume: Math.round(totalVol) }).eq('id', sessionIdRef.current)
     } else {
@@ -266,62 +138,16 @@ export default function SessionPage() {
           session_id: session.id, exercise_index: exIdx, exercise_name: ex.name,
           set_index: setIdx, weight_kg: d.kg ? parseFloat(d.kg) : null,
           reps: d.reps ? parseInt(d.reps) : null, completed: d.done,
-=======
-
-    if (sessionIdRef.current) {
-      // Session already exists via auto-save — just update note and final stats
-      await supabase.from('sessions').update({
-        note,
-        sets_done: setsDone,
-        sets_total: setsTotal,
-        total_volume: Math.round(totalVol),
-      }).eq('id', sessionIdRef.current)
-    } else {
-      // Nothing was auto-saved yet — full save
-      if (setsDone === 0) { alert('Complète au moins une série avant de terminer.'); setSaving(false); return }
-      const userId = userIdRef.current
-      if (!userId) return
-
-      const { data: session, error } = await supabase.from('sessions').insert({
-        user_id: userId,
-        session_type: type,
-        session_date: date,
-        total_volume: Math.round(totalVol),
-        sets_done: setsDone,
-        sets_total: setsTotal,
-        note,
-      }).select().single()
-
-      if (error || !session) { alert('Erreur lors de la sauvegarde.'); setSaving(false); return }
-
-      const setsToInsert = prog.flatMap((ex, exIdx) =>
-        (exData[exIdx] || []).map((d, setIdx) => ({
-          session_id: session.id,
-          exercise_index: exIdx,
-          exercise_name: ex.name,
-          set_index: setIdx,
-          weight_kg: d.kg ? parseFloat(d.kg) : null,
-          reps: d.reps ? parseInt(d.reps) : null,
-          completed: d.done,
->>>>>>> 5cc02dd29bb0beaa3bd27d68ebd4e4eb0b213e61
         }))
       )
       await supabase.from('session_sets').insert(setsToInsert)
     }
-<<<<<<< HEAD
-=======
-
->>>>>>> 5cc02dd29bb0beaa3bd27d68ebd4e4eb0b213e61
     setSaving(false)
     setSaved(true)
     setTimeout(() => router.replace('/dashboard'), 1200)
   }
 
-<<<<<<< HEAD
   if (!profile) return (
-=======
-  if (!prog.length || !profile) return (
->>>>>>> 5cc02dd29bb0beaa3bd27d68ebd4e4eb0b213e61
     <div className="flex items-center justify-center min-h-screen">
       <div className="w-8 h-8 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
     </div>
@@ -339,25 +165,9 @@ export default function SessionPage() {
         <div className="flex-1">
           <h1 className="text-base font-semibold leading-tight">{SESSION_LABELS[type]}</h1>
           <div className="flex items-center gap-2">
-<<<<<<< HEAD
             <p className="text-xs text-gray-500">{profile.name} · {pType === 'male' ? 'Prise de muscle' : 'Perte de gras / Toning'}</p>
             {autoSaveStatus === 'saving' && <span className="text-xs text-amber-500 flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />Sauvegarde...</span>}
             {autoSaveStatus === 'saved' && <span className="text-xs text-teal-600 flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-teal-500" />Sauvegardé</span>}
-=======
-            <p className="text-xs text-gray-500">
-              {profile.name} · {pType === 'male' ? 'Prise de muscle' : 'Perte de gras / Toning'}
-            </p>
-            {autoSaveStatus === 'saving' && (
-              <span className="text-xs text-amber-500 flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" /> Sauvegarde...
-              </span>
-            )}
-            {autoSaveStatus === 'saved' && (
-              <span className="text-xs text-teal-600 flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-teal-500" /> Sauvegardé
-              </span>
-            )}
->>>>>>> 5cc02dd29bb0beaa3bd27d68ebd4e4eb0b213e61
           </div>
         </div>
         <input type="date" value={date} onChange={e => setDate(e.target.value)}
@@ -390,7 +200,6 @@ export default function SessionPage() {
           const isHiit = ex.kind === 'hiit'
 
           return (
-<<<<<<< HEAD
             <div key={exIdx} className={`rounded-2xl border overflow-hidden ${isHiit ? 'bg-orange-50 border-orange-100' : 'bg-white border-gray-100'}`}>
               <div className={`flex items-start justify-between px-4 py-3 border-b ${isHiit ? 'border-orange-100' : 'border-gray-50'}`}>
                 <div className="flex-1 min-w-0 pr-2">
@@ -398,13 +207,6 @@ export default function SessionPage() {
                     <p className="text-sm font-medium text-gray-900">{ex.name}</p>
                     {isHiit && <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">HIIT cardio</span>}
                     {ex.kind === 'together' && <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Ensemble</span>}
-=======
-            <div key={exIdx} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-              <div className="flex items-start justify-between px-4 py-3 border-b border-gray-50">
-                <div className="flex-1 min-w-0 pr-2">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-gray-900 truncate">{ex.name}</p>
->>>>>>> 5cc02dd29bb0beaa3bd27d68ebd4e4eb0b213e61
                     <ExerciseDemo name={ex.name} gifFile={ex.demo.gifFile} youtube={ex.demo.youtube} tip={ex.demo.tip} />
                   </div>
                   <p className="text-xs text-gray-400 mt-0.5">Objectif : {ex.target[pType]}</p>
@@ -418,28 +220,18 @@ export default function SessionPage() {
               <div className="px-4 py-2">
                 <div className="grid grid-cols-12 gap-2 mb-2 text-xs text-gray-400 font-medium">
                   <div className="col-span-2">Série</div>
-<<<<<<< HEAD
                   <div className="col-span-4">{isHiit ? 'Durée' : 'Poids (kg)'}</div>
                   <div className="col-span-3">{isHiit ? 'Effort' : 'Reps'}</div>
-=======
-                  <div className="col-span-4">Poids (kg)</div>
-                  <div className="col-span-3">Reps</div>
->>>>>>> 5cc02dd29bb0beaa3bd27d68ebd4e4eb0b213e61
                   <div className="col-span-1 text-center">OK</div>
                   <div className="col-span-2"></div>
                 </div>
                 {sets.map((s, setIdx) => {
-<<<<<<< HEAD
                   const vol = !isHiit && s.done && s.kg && s.reps ? Math.round(parseFloat(s.kg) * parseInt(s.reps)) : null
-=======
-                  const vol = s.done && s.kg && s.reps ? Math.round(parseFloat(s.kg) * parseInt(s.reps)) : null
->>>>>>> 5cc02dd29bb0beaa3bd27d68ebd4e4eb0b213e61
                   const hasNext = setIdx < sets.length - 1 && !sets[setIdx + 1]?.done && (s.kg || s.reps)
                   return (
                     <div key={setIdx} className={`grid grid-cols-12 gap-2 items-center py-1.5 border-t border-gray-50 ${s.done ? 'opacity-60' : ''}`}>
                       <div className="col-span-2 text-xs text-gray-400 font-medium">{setIdx + 1}</div>
                       <div className="col-span-4">
-<<<<<<< HEAD
                         <input type="number" value={s.kg} onChange={e => updateSet(exIdx, setIdx, 'kg', e.target.value)}
                           placeholder={isHiit ? '30s' : '—'} disabled={s.done}
                           className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:bg-gray-50" />
@@ -448,26 +240,6 @@ export default function SessionPage() {
                         <input type="number" value={s.reps} onChange={e => updateSet(exIdx, setIdx, 'reps', e.target.value)}
                           placeholder={isHiit ? 'effort' : '—'} disabled={s.done}
                           className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:bg-gray-50" />
-=======
-                        <input
-                          type="number"
-                          value={s.kg}
-                          onChange={e => updateSet(exIdx, setIdx, 'kg', e.target.value)}
-                          placeholder="—"
-                          disabled={s.done}
-                          className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:bg-gray-50"
-                        />
-                      </div>
-                      <div className="col-span-3">
-                        <input
-                          type="number"
-                          value={s.reps}
-                          onChange={e => updateSet(exIdx, setIdx, 'reps', e.target.value)}
-                          placeholder="—"
-                          disabled={s.done}
-                          className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:bg-gray-50"
-                        />
->>>>>>> 5cc02dd29bb0beaa3bd27d68ebd4e4eb0b213e61
                       </div>
                       <div className="col-span-1 flex justify-center">
                         <input type="checkbox" checked={s.done} onChange={e => updateSet(exIdx, setIdx, 'done', e.target.checked)}
@@ -475,23 +247,11 @@ export default function SessionPage() {
                       </div>
                       <div className="col-span-2 flex items-center justify-end gap-1">
                         {vol !== null && <span className="text-xs text-gray-300">{vol}</span>}
-<<<<<<< HEAD
                         {hasNext && s.done && !isHiit && (
                           <button onClick={() => copyToNextSet(exIdx, setIdx)} title="Copier vers la série suivante"
                             className="text-gray-300 hover:text-teal-500 transition-colors">
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-=======
-                        {hasNext && s.done && (
-                          <button
-                            onClick={() => copyToNextSet(exIdx, setIdx)}
-                            title="Copier vers la série suivante"
-                            className="text-gray-300 hover:text-teal-500 transition-colors"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                                d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
->>>>>>> 5cc02dd29bb0beaa3bd27d68ebd4e4eb0b213e61
                             </svg>
                           </button>
                         )}
@@ -517,16 +277,8 @@ export default function SessionPage() {
         <button onClick={() => router.back()} className="flex-1 py-3 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors">
           Annuler
         </button>
-<<<<<<< HEAD
         <button onClick={handleFinish} disabled={saving || saved}
           className="flex-[2] py-3 rounded-xl bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 disabled:opacity-40 transition-colors">
-=======
-        <button
-          onClick={handleFinish}
-          disabled={saving || saved}
-          className="flex-[2] py-3 rounded-xl bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 disabled:opacity-40 transition-colors"
-        >
->>>>>>> 5cc02dd29bb0beaa3bd27d68ebd4e4eb0b213e61
           {saved ? 'Terminée ✓' : saving ? 'Finalisation...' : 'Terminer la séance'}
         </button>
       </div>
