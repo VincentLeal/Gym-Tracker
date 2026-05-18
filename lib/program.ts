@@ -38,6 +38,18 @@ export const PROGRAMS: Record<SessionType, Exercise[]> = {
       demo: { gifFile: 'rowing-machine.gif', youtube: 'https://www.youtube.com/watch?v=H0r_HMEo4y8', tip: 'Pousse avec les jambes d\'abord, puis tire avec les bras. Dos droit tout au long.' },
     },
     {
+      name: 'Pompes sur genoux',
+      substituteFor: 'female',
+      target: { male: '4×8-10', female: '3×10-15' },
+      defaultSets: { male: 4, female: 3 },
+      notes: { female: 'Substitut au développé couché — progresse vers pompes normales puis barre' },
+      demo: {
+        gifFile: 'knee-push-up.gif',
+        youtube: 'https://www.youtube.com/watch?v=jWxvty2KROs',
+        tip: 'Genoux au sol, corps aligné des genoux aux épaules, descends la poitrine jusqu\'au sol.',
+      },
+    },
+    {
       name: 'Développé incliné haltères',
       kind: 'together',
       target: { male: '3×10', female: '3×12' },
