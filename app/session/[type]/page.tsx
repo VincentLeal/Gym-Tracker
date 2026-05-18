@@ -54,7 +54,9 @@ export default function SessionPage() {
     if (!userId) return null
     const { data, error } = await supabase.from('sessions').insert({
       user_id: userId, session_type: type, session_date: date,
-      total_volume: 0, sets_done: 0, sets_total: prog.reduce((s, ex) => s + (ex.defaultSets[pType] || 3), 0), note: '',
+      total_volume: 0, sets_done: 0,
+      sets_total: prog.reduce((s, ex) => s + (ex.defaultSets[pType] || 3), 0),
+      note: '',
     }).select().single()
     if (error || !data) return null
     sessionIdRef.current = data.id
@@ -73,14 +75,9 @@ export default function SessionPage() {
       set_index: setIdx, weight_kg: setData.kg ? parseFloat(setData.kg) : null,
       reps: setData.reps ? parseInt(setData.reps) : null, completed: true,
     }, { onConflict: 'session_id,exercise_index,set_index' })
-    const allSets = Object.values(exData).flat()
-    const done = allSets.filter(d => d.done).length + 1
-    const vol = allSets.reduce((s, d) => d.done && d.kg && d.reps ? s + parseFloat(d.kg) * parseInt(d.reps) : s, 0)
-      + (setData.kg && setData.reps ? parseFloat(setData.kg) * parseInt(setData.reps) : 0)
-    await supabase.from('sessions').update({ sets_done: done, total_volume: Math.round(vol) }).eq('id', sessionId)
     setAutoSaveStatus('saved')
     setTimeout(() => setAutoSaveStatus('idle'), 1500)
-  }, [ensureSession, prog, exData])
+  }, [ensureSession, prog])
 
   const updateSet = useCallback((exIdx: number, setIdx: number, field: keyof SetData, val: string | boolean) => {
     setExData(prev => {
@@ -123,7 +120,9 @@ export default function SessionPage() {
     setSaving(true)
     const supabase = createClient()
     if (sessionIdRef.current) {
-      await supabase.from('sessions').update({ note, sets_done: setsDone, sets_total: setsTotal, total_volume: Math.round(totalVol) }).eq('id', sessionIdRef.current)
+      await supabase.from('sessions').update({
+        note, sets_done: setsDone, sets_total: setsTotal, total_volume: Math.round(totalVol),
+      }).eq('id', sessionIdRef.current)
     } else {
       if (setsDone === 0) { alert('Complète au moins une série avant de terminer.'); setSaving(false); return }
       const userId = userIdRef.current
@@ -155,7 +154,6 @@ export default function SessionPage() {
 
   return (
     <div className="max-w-lg mx-auto px-4 py-6 pb-32">
-      {/* Header */}
       <div className="flex items-center gap-3 mb-5">
         <button onClick={() => router.back()} className="text-gray-400 hover:text-gray-600">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -165,7 +163,7 @@ export default function SessionPage() {
         <div className="flex-1">
           <h1 className="text-base font-semibold leading-tight">{SESSION_LABELS[type]}</h1>
           <div className="flex items-center gap-2">
-            <p className="text-xs text-gray-500">{profile.name} · {pType === 'male' ? 'Prise de muscle' : 'Perte de gras / Toning'}</p>
+            <p className="text-xs text-gray-500">{profile.name} · {pType === 'male' ? 'Prise de muscle' : 'Perte de gras'}</p>
             {autoSaveStatus === 'saving' && <span className="text-xs text-amber-500 flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />Sauvegarde...</span>}
             {autoSaveStatus === 'saved' && <span className="text-xs text-teal-600 flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-teal-500" />Sauvegardé</span>}
           </div>
@@ -174,7 +172,6 @@ export default function SessionPage() {
           className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-teal-500" />
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-3 gap-2 mb-5">
         <div className={`rounded-xl p-3 text-center ${colors.bg}`}>
           <div className={`text-lg font-semibold ${colors.text}`}>{Math.round(totalVol).toLocaleString('fr-FR')}</div>
@@ -190,7 +187,6 @@ export default function SessionPage() {
         </div>
       </div>
 
-      {/* Exercises */}
       <div className="space-y-4">
         {prog.map((ex, exIdx) => {
           const sets = exData[exIdx] || []
@@ -233,12 +229,12 @@ export default function SessionPage() {
                       <div className="col-span-2 text-xs text-gray-400 font-medium">{setIdx + 1}</div>
                       <div className="col-span-4">
                         <input type="number" value={s.kg} onChange={e => updateSet(exIdx, setIdx, 'kg', e.target.value)}
-                          placeholder={isHiit ? '30s' : '—'} disabled={s.done}
+                          placeholder={isHiit ? '30' : '—'} disabled={s.done}
                           className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:bg-gray-50" />
                       </div>
                       <div className="col-span-3">
                         <input type="number" value={s.reps} onChange={e => updateSet(exIdx, setIdx, 'reps', e.target.value)}
-                          placeholder={isHiit ? 'effort' : '—'} disabled={s.done}
+                          placeholder={isHiit ? 'RPE' : '—'} disabled={s.done}
                           className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:bg-gray-50" />
                       </div>
                       <div className="col-span-1 flex justify-center">

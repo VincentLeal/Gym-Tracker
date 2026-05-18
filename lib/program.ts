@@ -3,8 +3,8 @@ export type ProfileType = 'male' | 'female'
 export type ExerciseKind = 'together' | 'hiit' | 'solo'
 
 export interface Exercise {
-  name: string                              // nom affiché
-  kind: ExerciseKind                        // together = ensemble, hiit = cardio elle, solo = uniquement Vincent
+  name: string
+  kind: ExerciseKind
   target: Partial<Record<ProfileType, string>>
   defaultSets: Partial<Record<ProfileType, number>>
   notes?: Partial<Record<ProfileType, string>>
@@ -14,10 +14,6 @@ export interface Exercise {
     tip: string
   }
 }
-
-// kind = 'together' → visible pour les deux profils
-// kind = 'hiit'     → visible uniquement pour female (cardio pendant que Vincent fait son exercice solo)
-// kind = 'solo'     → visible uniquement pour male
 
 export const PROGRAMS: Record<SessionType, Exercise[]> = {
   push: [
@@ -36,18 +32,6 @@ export const PROGRAMS: Record<SessionType, Exercise[]> = {
       defaultSets: { female: 5 },
       notes: { female: 'Pendant le développé couché de Vincent — 30s effort / 30s repos' },
       demo: { gifFile: 'rowing-machine.gif', youtube: 'https://www.youtube.com/watch?v=H0r_HMEo4y8', tip: 'Pousse avec les jambes d\'abord, puis tire avec les bras. Dos droit tout au long.' },
-    },
-    {
-      name: 'Pompes sur genoux',
-      substituteFor: 'female',
-      target: { male: '4×8-10', female: '3×10-15' },
-      defaultSets: { male: 4, female: 3 },
-      notes: { female: 'Substitut au développé couché — progresse vers pompes normales puis barre' },
-      demo: {
-        gifFile: 'knee-push-up.gif',
-        youtube: 'https://www.youtube.com/watch?v=jWxvty2KROs',
-        tip: 'Genoux au sol, corps aligné des genoux aux épaules, descends la poitrine jusqu\'au sol.',
-      },
     },
     {
       name: 'Développé incliné haltères',
@@ -102,7 +86,7 @@ export const PROGRAMS: Record<SessionType, Exercise[]> = {
       kind: 'solo',
       target: { male: '4×8' },
       defaultSets: { male: 4 },
-      notes: { male: 'Dos plat, omoplate en fin de mouvement' },
+      notes: { male: 'Dos plat, omoplate contractée en fin de mouvement' },
       demo: { gifFile: 'barbell-row.webp', youtube: 'https://www.youtube.com/watch?v=roCP6wCXPqo', tip: 'Dos plat, tire le coude vers le plafond, contracte l\'omoplate en fin de mouvement.' },
     },
     {
@@ -206,7 +190,6 @@ export const SESSION_COLORS: Record<SessionType, { bg: string; text: string; bor
   legs:  { bg: 'bg-purple-50', text: 'text-purple-800', border: 'border-purple-300' },
 }
 
-// Helper: filter exercises visible for a given profile
 export function getExercisesForProfile(session: SessionType, profile: ProfileType): Exercise[] {
   return PROGRAMS[session].filter(ex => {
     if (ex.kind === 'together') return true

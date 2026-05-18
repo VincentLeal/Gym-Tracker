@@ -6,7 +6,6 @@ import { SESSION_COLORS, SESSION_LABELS, SessionType } from '@/lib/program'
 
 interface SetRecord {
   exercise_name: string
-  exercise_index: number
   set_index: number
   weight_kg: number | null
   reps: number | null
@@ -56,8 +55,7 @@ export default function Dashboard() {
 
   const deleteSession = async (id: string) => {
     if (!confirm('Supprimer cette séance ?')) return
-    const supabase = createClient()
-    await supabase.from('sessions').delete().eq('id', id)
+    await createClient().from('sessions').delete().eq('id', id)
     setHistory(prev => prev.filter(h => h.id !== id))
     if (detailSession?.id === id) setDetailSession(null)
   }
@@ -65,18 +63,12 @@ export default function Dashboard() {
   const openDetail = async (h: SessionRecord) => {
     setDetailSession(h)
     setDetailLoading(true)
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('session_sets')
-      .select('*')
-      .eq('session_id', h.id)
-      .order('exercise_index')
-      .order('set_index')
+    const { data } = await createClient().from('session_sets').select('*').eq('session_id', h.id)
+      .order('exercise_index').order('set_index')
     setDetailSets(data || [])
     setDetailLoading(false)
   }
 
-  // Group sets by exercise
   const groupedSets = detailSets.reduce((acc, s) => {
     if (!acc[s.exercise_name]) acc[s.exercise_name] = []
     acc[s.exercise_name].push(s)
@@ -89,8 +81,7 @@ export default function Dashboard() {
     let count = 0
     const now = new Date()
     for (const h of history) {
-      const d = new Date(h.session_date)
-      const diff = Math.floor((now.getTime() - d.getTime()) / 86400000)
+      const diff = Math.floor((now.getTime() - new Date(h.session_date).getTime()) / 86400000)
       if (diff <= (count + 1) * 7) count++
       else break
     }
@@ -105,7 +96,6 @@ export default function Dashboard() {
 
   return (
     <div className="max-w-lg mx-auto px-4 py-6 pb-24">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold">Salut {profile?.name || 'toi'} 👋</h1>
@@ -114,23 +104,15 @@ export default function Dashboard() {
         <button onClick={logout} className="text-sm text-gray-400 hover:text-gray-600">Déconnexion</button>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-3 gap-3 mb-6">
-        <div className="bg-white rounded-xl border border-gray-100 p-3 text-center">
-          <div className="text-xl font-semibold text-teal-700">{history.length}</div>
-          <div className="text-xs text-gray-500 mt-0.5">Séances</div>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-100 p-3 text-center">
-          <div className="text-xl font-semibold text-teal-700">{(totalVol / 1000).toFixed(1)}t</div>
-          <div className="text-xs text-gray-500 mt-0.5">Volume total</div>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-100 p-3 text-center">
-          <div className="text-xl font-semibold text-teal-700">{streak}</div>
-          <div className="text-xs text-gray-500 mt-0.5">Semaines</div>
-        </div>
+        {[{ label: 'Séances', val: history.length }, { label: 'Volume total', val: `${(totalVol/1000).toFixed(1)}t` }, { label: 'Semaines', val: streak }].map(s => (
+          <div key={s.label} className="bg-white rounded-xl border border-gray-100 p-3 text-center">
+            <div className="text-xl font-semibold text-teal-700">{s.val}</div>
+            <div className="text-xs text-gray-500 mt-0.5">{s.label}</div>
+          </div>
+        ))}
       </div>
 
-      {/* Start session */}
       <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Démarrer une séance</p>
       <div className="space-y-2 mb-8">
         {(['push', 'pull', 'legs'] as SessionType[]).map(type => {
@@ -147,7 +129,6 @@ export default function Dashboard() {
         })}
       </div>
 
-      {/* History */}
       {history.length > 0 && (
         <>
           <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Historique</p>
@@ -160,24 +141,18 @@ export default function Dashboard() {
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-gray-700 capitalize">{date}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.bg} ${c.text}`}>
-                        {TYPE_LABELS[h.session_type]}
-                      </span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.bg} ${c.text}`}>{TYPE_LABELS[h.session_type]}</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {/* Consult */}
-                      <button onClick={() => openDetail(h)}
-                        className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-teal-600 transition-colors"
-                        title="Consulter">
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => openDetail(h)} title="Consulter"
+                        className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-teal-600 transition-colors">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                         </svg>
                       </button>
-                      {/* Delete */}
-                      <button onClick={() => deleteSession(h.id)}
-                        className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-red-50 text-gray-300 hover:text-red-400 transition-colors"
-                        title="Supprimer">
+                      <button onClick={() => deleteSession(h.id)} title="Supprimer"
+                        className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-red-50 text-gray-300 hover:text-red-400 transition-colors">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>
@@ -202,13 +177,9 @@ export default function Dashboard() {
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
           <div className="relative w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl max-h-[85vh] flex flex-col"
             onClick={e => e.stopPropagation()}>
-
-            {/* Handle */}
             <div className="flex justify-center pt-3 pb-1 sm:hidden flex-shrink-0">
               <div className="w-10 h-1 bg-gray-200 rounded-full" />
             </div>
-
-            {/* Header */}
             <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 flex-shrink-0">
               <div>
                 <p className="text-base font-semibold text-gray-900">
@@ -233,8 +204,6 @@ export default function Dashboard() {
                 </button>
               </div>
             </div>
-
-            {/* Content */}
             <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
               {detailLoading ? (
                 <div className="flex justify-center py-8">
