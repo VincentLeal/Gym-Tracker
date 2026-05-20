@@ -239,8 +239,8 @@ export default function SessionPage() {
   }
 
   const finishSession = async () => {
-    const currentData = exDataRef.current
-    const doneSets = Object.entries(currentData).flatMap(([exIdxStr, sets]) =>
+    // Use exData directly from closure (finishSession is not memoized so closure is always fresh)
+    const doneSets = Object.entries(exData).flatMap(([exIdxStr, sets]) =>
       sets.map((s, setIdx) => ({ exIdx: parseInt(exIdxStr), setIdx, s })).filter(({ s }) => s.done)
     )
 
@@ -258,7 +258,7 @@ export default function SessionPage() {
     await supabase.from('session_sets').delete().eq('session_id', sessionId)
 
     if (doneSets.length > 0) {
-      await supabase.from('session_sets').insert(
+      const { error: insertError } = await supabase.from('session_sets').insert(
         doneSets.map(({ exIdx, setIdx, s }) => ({
           session_id: sessionId,
           exercise_index: exIdx,
@@ -269,6 +269,7 @@ export default function SessionPage() {
           completed: true,
         }))
       )
+      if (insertError) console.error('finishSession insert error:', insertError)
     }
 
     const totalVolume = doneSets.reduce((sum, { s }) => {
@@ -276,12 +277,13 @@ export default function SessionPage() {
       return sum
     }, 0)
 
-    await supabase.from('sessions').update({
+    const { error: updateError } = await supabase.from('sessions').update({
       sets_done: doneSets.length,
       total_volume: Math.round(totalVolume),
       session_date: date,
       note,
     }).eq('id', sessionId)
+    if (updateError) console.error('finishSession update error:', updateError)
 
     setSaving(false)
     router.push('/dashboard')
@@ -478,7 +480,7 @@ export default function SessionPage() {
         {(setsDone > 0 || editMode) && (
           <button
             onClick={finishSession}
-            disabled={saving}
+            disabled={saving || autoSaveStatus === 'saving'}
             className="flex-1 py-3 text-sm font-medium text-white bg-teal-600 rounded-xl hover:bg-teal-700 disabled:opacity-50 transition-colors"
           >
             {saving ? 'Sauvegarde…' : 'Terminer'}
