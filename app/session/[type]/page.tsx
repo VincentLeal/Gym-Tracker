@@ -238,6 +238,55 @@ export default function SessionPage() {
     setTimeout(() => setSaved(false), 2000)
   }
 
+  const finishSession = async () => {
+    const currentData = exDataRef.current
+    const doneSets = Object.entries(currentData).flatMap(([exIdxStr, sets]) =>
+      sets.map((s, setIdx) => ({ exIdx: parseInt(exIdxStr), setIdx, s })).filter(({ s }) => s.done)
+    )
+
+    if (doneSets.length === 0 && !sessionIdRef.current) {
+      router.push('/dashboard')
+      return
+    }
+
+    setSaving(true)
+    const supabase = createClient()
+    const sessionId = await ensureSession()
+    if (!sessionId) { setSaving(false); router.push('/dashboard'); return }
+
+    // Bulk delete + re-insert all done sets for a consistent final state
+    await supabase.from('session_sets').delete().eq('session_id', sessionId)
+
+    if (doneSets.length > 0) {
+      await supabase.from('session_sets').insert(
+        doneSets.map(({ exIdx, setIdx, s }) => ({
+          session_id: sessionId,
+          exercise_index: exIdx,
+          exercise_name: prog[exIdx].name,
+          set_index: setIdx,
+          weight_kg: s.kg ? parseFloat(s.kg) : null,
+          reps: s.reps ? parseInt(s.reps) : null,
+          completed: true,
+        }))
+      )
+    }
+
+    const totalVolume = doneSets.reduce((sum, { s }) => {
+      if (s.kg && s.reps) return sum + parseFloat(s.kg) * parseInt(s.reps)
+      return sum
+    }, 0)
+
+    await supabase.from('sessions').update({
+      sets_done: doneSets.length,
+      total_volume: Math.round(totalVolume),
+      session_date: date,
+      note,
+    }).eq('id', sessionId)
+
+    setSaving(false)
+    router.push('/dashboard')
+  }
+
   if (!profile) return (
     <div className="flex items-center justify-center min-h-screen">
       <div className="w-8 h-8 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
@@ -426,13 +475,13 @@ export default function SessionPage() {
         >
           Tableau de bord
         </button>
-        {setsDone > 0 && (
+        {(setsDone > 0 || editMode) && (
           <button
-            onClick={() => router.push('/dashboard')}
-            disabled={autoSaveStatus === 'saving'}
+            onClick={finishSession}
+            disabled={saving}
             className="flex-1 py-3 text-sm font-medium text-white bg-teal-600 rounded-xl hover:bg-teal-700 disabled:opacity-50 transition-colors"
           >
-            {autoSaveStatus === 'saving' ? 'Sauvegarde…' : 'Terminer'}
+            {saving ? 'Sauvegarde…' : 'Terminer'}
           </button>
         )}
       </div>
