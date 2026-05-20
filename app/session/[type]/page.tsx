@@ -135,17 +135,18 @@ export default function SessionPage() {
     const supabase = createClient()
     const userId = userIdRef.current
     if (!userId) return null
-    const promise = supabase.from('sessions').insert({
-      user_id: userId, session_type: type, session_date: date,
-      total_volume: 0, sets_done: 0,
-      sets_total: prog.reduce((s, ex) => s + (ex.defaultSets[pType] || 3), 0),
-      note: '',
-    }).select().single().then(({ data, error }) => {
+    const promise: Promise<string | null> = (async () => {
+      const { data, error } = await supabase.from('sessions').insert({
+        user_id: userId, session_type: type, session_date: date,
+        total_volume: 0, sets_done: 0,
+        sets_total: prog.reduce((s, ex) => s + (ex.defaultSets[pType] || 3), 0),
+        note: '',
+      }).select().single()
       ensureSessionPromiseRef.current = null
       if (error || !data) { console.error('ensureSession error:', error); return null }
       sessionIdRef.current = data.id
       return data.id
-    })
+    })()
     ensureSessionPromiseRef.current = promise
     return promise
   }, [type, date, prog, pType])
