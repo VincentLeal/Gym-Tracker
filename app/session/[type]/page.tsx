@@ -32,10 +32,17 @@ export default function SessionPage() {
 
   const sessionIdRef = useRef<string | null>(null)
   const userIdRef = useRef<string | null>(null)
+  // Garde une copie à jour de exData sans dépendance dans les callbacks
+  const exDataRef = useRef<ExData>({})
+  // Déduplique les appels concurrents à ensureSession
+  const ensureSessionPromiseRef = useRef<Promise<string | null> | null>(null)
 
   const colors = SESSION_COLORS[type]
   const pType: ProfileType = profile?.profile_type || 'male'
   const prog = getExercisesForProfile(type, pType)
+
+  // Garde exDataRef synchronisé pour les callbacks sans stale closure
+  useEffect(() => { exDataRef.current = exData }, [exData])
 
   useEffect(() => {
     // Read ?id=... from URL (client-side only, avoids Suspense wrapper)
