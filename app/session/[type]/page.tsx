@@ -11,6 +11,12 @@ interface HistoryEntry { date: string; sets: { kg: number | null; reps: number |
 
 function today() { return new Date().toISOString().split('T')[0] }
 
+function fmtTime(sec: number) {
+  if (sec < 60) return `${sec}s`
+  const m = Math.floor(sec / 60), s = sec % 60
+  return s > 0 ? `${m}m ${s}s` : `${m}m`
+}
+
 const PROGRESS_COLORS: Record<SessionType, string> = {
   push: 'bg-teal-500',
   pull: 'bg-blue-500',
@@ -285,7 +291,10 @@ export default function SessionPage() {
   const allSets = Object.values(exData).flat()
   const setsDone = allSets.filter(d => d.done).length
   const setsTotal = allSets.length
-  const totalVol = allSets.reduce((s, d) => d.done && d.kg && d.reps ? s + parseFloat(d.kg) * parseInt(d.reps) : s, 0)
+  const totalVol = prog.reduce((total, ex, exIdx) => {
+    if (ex.kind === 'hiit') return total
+    return total + (exData[exIdx] || []).reduce((s: number, d: SetData) => d.done && d.kg && d.reps ? s + parseFloat(d.kg) * parseInt(d.reps) : s, 0)
+  }, 0)
 
   if (!profile) return (
     <div className="flex items-center justify-center min-h-screen">
@@ -384,8 +393,8 @@ export default function SessionPage() {
               <div className="px-4 pb-1">
                 <div className="grid grid-cols-12 text-xs text-gray-400 font-medium mb-1.5 px-1">
                   <div className="col-span-2">#</div>
-                  <div className="col-span-4">Poids (kg)</div>
-                  <div className="col-span-4">Reps</div>
+                  <div className="col-span-4">{ex.kind === 'hiit' ? 'Résistance' : 'Poids (kg)'}</div>
+                  <div className="col-span-4">{ex.kind === 'hiit' ? 'Durée (s)' : 'Reps'}</div>
                   <div className="col-span-2 text-right">✓</div>
                 </div>
                 <div className="space-y-1.5">
@@ -398,7 +407,7 @@ export default function SessionPage() {
                       <div className="col-span-4">
                         <input
                           type="number"
-                          inputMode="decimal"
+                          inputMode="numeric"
                           placeholder="—"
                           value={s.kg}
                           onChange={e => updateSet(exIdx, setIdx, 'kg', e.target.value)}
@@ -510,14 +519,18 @@ export default function SessionPage() {
                       <div className="bg-gray-50 rounded-xl overflow-hidden">
                         <div className="grid grid-cols-12 px-3 py-2 text-xs text-gray-400 font-medium border-b border-gray-100">
                           <div className="col-span-2">Série</div>
-                          <div className="col-span-5">Poids</div>
-                          <div className="col-span-5">Reps</div>
+                          <div className="col-span-5">{prog[historyExIdx].kind === 'hiit' ? 'Résistance' : 'Poids'}</div>
+                          <div className="col-span-5">{prog[historyExIdx].kind === 'hiit' ? 'Durée' : 'Reps'}</div>
                         </div>
                         {entry.sets.map((s, si) => (
                           <div key={si} className="grid grid-cols-12 px-3 py-2 text-sm border-t border-gray-100">
                             <div className="col-span-2 text-gray-400">{si + 1}</div>
-                            <div className="col-span-5 text-gray-700">{s.kg != null ? `${s.kg} kg` : '—'}</div>
-                            <div className="col-span-5 text-gray-700">{s.reps ?? '—'}</div>
+                            <div className="col-span-5 text-gray-700">
+                              {s.kg != null ? (prog[historyExIdx].kind === 'hiit' ? s.kg : `${s.kg} kg`) : '—'}
+                            </div>
+                            <div className="col-span-5 text-gray-700">
+                              {s.reps != null ? (prog[historyExIdx].kind === 'hiit' ? fmtTime(s.reps) : s.reps) : '—'}
+                            </div>
                           </div>
                         ))}
                       </div>
