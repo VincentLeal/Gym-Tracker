@@ -28,6 +28,7 @@ export default function SessionPage() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [editMode, setEditMode] = useState(false)
 
   const sessionIdRef = useRef<string | null>(null)
   const userIdRef = useRef<string | null>(null)
@@ -37,18 +38,63 @@ export default function SessionPage() {
   const prog = getExercisesForProfile(type, pType)
 
   useEffect(() => {
+    // Read ?id=... from URL (client-side only, avoids Suspense wrapper)
+    const searchId = new URLSearchParams(window.location.search).get('id')
+
     const supabase = createClient()
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.replace('/login'); return }
       userIdRef.current = session.user.id
-      const { data: prof } = await supabase.from('profiles').select('name, profile_type').eq('id', session.user.id).single()
+
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('name, profile_type')
+        .eq('id', session.user.id)
+        .single()
       setProfile(prof)
+
       const pt: ProfileType = prof?.profile_type || 'male'
       const exercises = getExercisesForProfile(type, pt)
+
+      // Initialize all sets with defaults
       const init: ExData = {}
       exercises.forEach((ex, i) => {
         init[i] = Array.from({ length: ex.defaultSets[pt] || 3 }, () => ({ kg: '', reps: '', done: false }))
       })
+
+      if (searchId) {
+        // Edit mode: load existing session data
+        sessionIdRef.current = searchId
+        setEditMode(true)
+
+        const [{ data: existingSession }, { data: existingSets }] = await Promise.all([
+          supabase.from('sessions').select('session_date, note').eq('id', searchId).single(),
+          supabase.from('session_sets').select('*').eq('session_id', searchId)
+            .order('exercise_index').order('set_index'),
+        ])
+
+        if (existingSession) {
+          setDate(existingSession.session_date)
+          setNote(existingSession.note || '')
+        }
+
+        if (existingSets) {
+          existingSets.forEach(s => {
+            if (!init[s.exercise_index]) {
+              init[s.exercise_index] = []
+            }
+            while (init[s.exercise_index].length <= s.set_index) {
+              init[s.exercise_index].push({ kg: '', reps: '', done: false })
+            }
+            init[s.exercise_index][s.set_index] = {
+              kg: s.weight_kg?.toString() || '',
+              reps: s.reps?.toString() || '',
+              done: s.completed ?? false,
+            }
+          })
+        }
+      }
+
       setExData(init)
     })
   }, [type, router])
@@ -64,7 +110,10 @@ export default function SessionPage() {
       sets_total: prog.reduce((s, ex) => s + (ex.defaultSets[pType] || 3), 0),
       note: '',
     }).select().single()
-    if (error || !data) return null
+    if (error || !data) {
+      console.error('ensureSession error:', error)
+      return null
+    }
     sessionIdRef.current = data.id
     return data.id
   }, [type, date, prog, pType])
@@ -77,12 +126,30 @@ export default function SessionPage() {
     const supabase = createClient()
     const ex = prog[exIdx]
 
-    await supabase.from('session_sets').upsert({
-      session_id: sessionId, exercise_index: exIdx, exercise_name: ex.name,
-      set_index: setIdx, weight_kg: setData.kg ? parseFloat(setData.kg) : null,
-      reps: setData.reps ? parseInt(setData.reps) : null, completed: true,
-    }, { onConflict: 'session_id,exercise_index,set_index' })
+    // Delete then insert — no unique constraint required
+    await supabase.from('session_sets')
+      .delete()
+      .eq('session_id', sessionId)
+      .eq('exercise_index', exIdx)
+      .eq('set_index', setIdx)
 
+    const { error: insertError } = await supabase.from('session_sets').insert({
+      session_id: sessionId,
+      exercise_index: exIdx,
+      exercise_name: ex.name,
+      set_index: setIdx,
+      weight_kg: setData.kg ? parseFloat(setData.kg) : null,
+      reps: setData.reps ? parseInt(setData.reps) : null,
+      completed: true,
+    })
+
+    if (insertError) {
+      console.error('insert set error:', insertError)
+      setAutoSaveStatus('idle')
+      return
+    }
+
+    // Recompute volume and sets_done from DB
     const { data: allSets } = await supabase
       .from('session_sets')
       .select('weight_kg, reps, completed')
@@ -172,7 +239,14 @@ export default function SessionPage() {
           </svg>
         </button>
         <div className="flex-1 min-w-0">
-          <h1 className={`text-sm font-semibold ${colors.text} truncate`}>{SESSION_LABELS[type]}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className={`text-sm font-semibold ${colors.text} truncate`}>{SESSION_LABELS[type]}</h1>
+            {editMode && (
+              <span className="text-xs px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium flex-shrink-0">
+                Édition
+              </span>
+            )}
+          </div>
           <p className="text-xs text-gray-400">{profile.name}</p>
         </div>
         <div className="text-xs flex-shrink-0">
