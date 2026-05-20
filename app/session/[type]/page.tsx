@@ -99,6 +99,17 @@ export default function SessionPage() {
               done: s.completed ?? false,
             }
           })
+
+          // Recalculate and sync sessions table in case it was out of sync
+          const setsDone = existingSets.filter(s => s.completed).length
+          const totalVolume = existingSets.reduce((sum, s) => {
+            if (s.completed && s.weight_kg && s.reps) return sum + s.weight_kg * s.reps
+            return sum
+          }, 0)
+          await supabase.from('sessions').update({
+            sets_done: setsDone,
+            total_volume: Math.round(totalVolume),
+          }).eq('id', searchId)
         }
       }
 
