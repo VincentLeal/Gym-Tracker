@@ -68,7 +68,8 @@ export default function SessionPage() {
 
       const init: ExData = {}
       exercises.forEach((ex, i) => {
-        init[i] = Array.from({ length: ex.defaultSets[pt] || 3 }, () => ({ kg: '', reps: '', done: false }))
+        const count = ex.kind === 'hiit' ? 1 : (ex.defaultSets[pt] || 3)
+        init[i] = Array.from({ length: count }, () => ({ kg: '', reps: '', done: false }))
       })
 
       if (searchId) {
