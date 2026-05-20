@@ -42,12 +42,15 @@ create policy "Users can insert own profile" on profiles for insert with check (
 
 create policy "Users can view own sessions" on sessions for select using (auth.uid() = user_id);
 create policy "Users can insert own sessions" on sessions for insert with check (auth.uid() = user_id);
+create policy "Users can update own sessions" on sessions for update using (auth.uid() = user_id);
 create policy "Users can delete own sessions" on sessions for delete using (auth.uid() = user_id);
 
 create policy "Users can view own sets" on session_sets for select
   using (session_id in (select id from sessions where user_id = auth.uid()));
 create policy "Users can insert own sets" on session_sets for insert
   with check (session_id in (select id from sessions where user_id = auth.uid()));
+create policy "Users can update own sets" on session_sets for update
+  using (session_id in (select id from sessions where user_id = auth.uid()));
 create policy "Users can delete own sets" on session_sets for delete
   using (session_id in (select id from sessions where user_id = auth.uid()));
 
