@@ -25,6 +25,10 @@ interface SessionRecord {
 interface Profile { name: string; email: string }
 const TYPE_LABELS: Record<SessionType, string> = { push: 'Push', pull: 'Pull', legs: 'Legs' }
 
+function isSessionCompleted(s: SessionRecord) {
+  return s.sets_total > 0 && s.sets_done >= s.sets_total
+}
+
 export default function Dashboard() {
   const router = useRouter()
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -136,12 +140,31 @@ export default function Dashboard() {
             {history.map(h => {
               const c = SESSION_COLORS[h.session_type]
               const date = new Date(h.session_date).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })
+              const completed = isSessionCompleted(h)
               return (
-                <div key={h.id} className="bg-white rounded-xl border border-gray-100 p-4">
+                <div
+                  key={h.id}
+                  className={`rounded-xl border p-4 ${completed ? 'bg-emerald-50/70 border-emerald-200' : 'bg-amber-50/40 border-amber-200'}`}
+                >
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-gray-700 capitalize">{date}</span>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.bg} ${c.text}`}>{TYPE_LABELS[h.session_type]}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-semibold inline-flex items-center gap-1 ${completed ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {completed ? (
+                          <>
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                            Terminée
+                          </>
+                        ) : (
+                          <>
+                            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                            En cours
+                          </>
+                        )}
+                      </span>
                     </div>
                     <div className="flex items-center gap-1">
                       <button onClick={() => openDetail(h)} title="Consulter"
@@ -194,6 +217,21 @@ export default function Dashboard() {
                 <p className="text-xs text-gray-400 mt-0.5">
                   {TYPE_LABELS[detailSession.session_type]} · {detailSession.total_volume?.toLocaleString('fr-FR')} kg · {detailSession.sets_done}/{detailSession.sets_total} séries
                 </p>
+                <div className="mt-1.5">
+                  {isSessionCompleted(detailSession) ? (
+                    <span className="text-xs px-2 py-0.5 rounded-full font-semibold inline-flex items-center gap-1 bg-emerald-100 text-emerald-700">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Terminée
+                    </span>
+                  ) : (
+                    <span className="text-xs px-2 py-0.5 rounded-full font-semibold inline-flex items-center gap-1 bg-amber-100 text-amber-700">
+                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                      En cours
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => deleteSession(detailSession.id)}
