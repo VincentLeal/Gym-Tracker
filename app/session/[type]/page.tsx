@@ -105,14 +105,16 @@ export default function SessionPage() {
   }, [ensureSession, prog])
 
   const updateSet = useCallback((exIdx: number, setIdx: number, field: keyof SetData, val: string | boolean) => {
+    let setToSave: SetData | null = null
     setExData(prev => {
       const next = { ...prev }
       const sets = [...(next[exIdx] || [])]
       sets[setIdx] = { ...sets[setIdx], [field]: val }
       next[exIdx] = sets
-      if (field === 'done' && val === true) autoSaveSet(exIdx, setIdx, sets[setIdx])
+      if (field === 'done' && val === true) setToSave = sets[setIdx]
       return next
     })
+    if (setToSave) autoSaveSet(exIdx, setIdx, setToSave)
   }, [autoSaveSet])
 
   const addSet = useCallback((exIdx: number) => {
@@ -335,9 +337,10 @@ export default function SessionPage() {
         {setsDone > 0 && (
           <button
             onClick={() => router.push('/dashboard')}
-            className="flex-1 py-3 text-sm font-medium text-white bg-teal-600 rounded-xl hover:bg-teal-700 transition-colors"
+            disabled={autoSaveStatus === 'saving'}
+            className="flex-1 py-3 text-sm font-medium text-white bg-teal-600 rounded-xl hover:bg-teal-700 disabled:opacity-50 transition-colors"
           >
-            Terminer
+            {autoSaveStatus === 'saving' ? 'Sauvegarde…' : 'Terminer'}
           </button>
         )}
       </div>
