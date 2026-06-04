@@ -210,16 +210,17 @@ export default function SessionPage() {
   }, [ensureSession, prog])
 
   const updateSet = useCallback((exIdx: number, setIdx: number, field: keyof SetData, val: string | boolean) => {
-    let setToSave: SetData | null = null
     setExData(prev => {
       const next = { ...prev }
       const sets = [...(next[exIdx] || [])]
       sets[setIdx] = { ...sets[setIdx], [field]: val }
       next[exIdx] = sets
-      if (field === 'done' && val === true) setToSave = sets[setIdx]
       return next
     })
-    if (setToSave) autoSaveSet(exIdx, setIdx, setToSave)
+    if (field === 'done' && val === true) {
+      const currentSet = exDataRef.current[exIdx]?.[setIdx]
+      if (currentSet) autoSaveSet(exIdx, setIdx, { ...currentSet, done: true })
+    }
   }, [autoSaveSet])
 
   const addSet = useCallback((exIdx: number) => {
