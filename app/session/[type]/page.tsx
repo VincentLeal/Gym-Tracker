@@ -7,8 +7,15 @@ import ExerciseDemo from '@/components/ExerciseDemo'
 
 interface SetData { kg: string; reps: string; done: boolean }
 type ExData = Record<number, SetData[]>
+interface HistoryEntry { date: string; sets: { kg: number | null; reps: number | null }[] }
 
 function today() { return new Date().toISOString().split('T')[0] }
+
+function fmtTime(sec: number) {
+  if (sec < 60) return `${sec}s`
+  const m = Math.floor(sec / 60), s = sec % 60
+  return s > 0 ? `${m}m ${s}s` : `${m}m`
+}
 
 const PROGRESS_COLORS: Record<SessionType, string> = {
   push: 'bg-teal-500',
@@ -25,29 +32,25 @@ export default function SessionPage() {
   const [date, setDate] = useState(today())
   const [exData, setExData] = useState<ExData>({})
   const [note, setNote] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [editMode, setEditMode] = useState(false)
+  const [historyExIdx, setHistoryExIdx] = useState<number | null>(null)
+  const [historyData, setHistoryData] = useState<HistoryEntry[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
 
   const sessionIdRef = useRef<string | null>(null)
   const userIdRef = useRef<string | null>(null)
-  // Garde une copie à jour de exData sans dépendance dans les callbacks
   const exDataRef = useRef<ExData>({})
-  // Déduplique les appels concurrents à ensureSession
   const ensureSessionPromiseRef = useRef<Promise<string | null> | null>(null)
 
   const colors = SESSION_COLORS[type]
   const pType: ProfileType = profile?.profile_type || 'male'
   const prog = getExercisesForProfile(type, pType)
 
-  // Garde exDataRef synchronisé pour les callbacks sans stale closure
   useEffect(() => { exDataRef.current = exData }, [exData])
 
   useEffect(() => {
-    // Read ?id=... from URL (client-side only, avoids Suspense wrapper)
     const searchId = new URLSearchParams(window.location.search).get('id')
-
     const supabase = createClient()
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.replace('/login'); return }
@@ -63,14 +66,13 @@ export default function SessionPage() {
       const pt: ProfileType = prof?.profile_type || 'male'
       const exercises = getExercisesForProfile(type, pt)
 
-      // Initialize all sets with defaults
       const init: ExData = {}
       exercises.forEach((ex, i) => {
-        init[i] = Array.from({ length: ex.defaultSets[pt] || 3 }, () => ({ kg: '', reps: '', done: false }))
+        const count = ex.kind === 'hiit' ? 1 : (ex.defaultSets[pt] || 3)
+        init[i] = Array.from({ length: count }, () => ({ kg: '', reps: '', done: false }))
       })
 
       if (searchId) {
-        // Edit mode: load existing session data
         sessionIdRef.current = searchId
         setEditMode(true)
 
@@ -87,9 +89,7 @@ export default function SessionPage() {
 
         if (existingSets) {
           existingSets.forEach(s => {
-            if (!init[s.exercise_index]) {
-              init[s.exercise_index] = []
-            }
+            if (!init[s.exercise_index]) init[s.exercise_index] = []
             while (init[s.exercise_index].length <= s.set_index) {
               init[s.exercise_index].push({ kg: '', reps: '', done: false })
             }
@@ -100,7 +100,6 @@ export default function SessionPage() {
             }
           })
 
-          // Recalculate and sync sessions table in case it was out of sync
           const setsDone = existingSets.filter(s => s.completed).length
           const totalVolume = existingSets.reduce((sum, s) => {
             if (s.completed && s.weight_kg && s.reps) return sum + s.weight_kg * s.reps
@@ -117,23 +116,46 @@ export default function SessionPage() {
     })
   }, [type, router])
 
+  // Auto-save note (debounced)
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      const sessionId = sessionIdRef.current
+      if (!sessionId) return
+      setAutoSaveStatus('saving')
+      await createClient().from('sessions').update({ note }).eq('id', sessionId)
+      setAutoSaveStatus('saved')
+      setTimeout(() => setAutoSaveStatus('idle'), 1500)
+    }, 1500)
+    return () => clearTimeout(t)
+  }, [note])
+
+  // Auto-save date when it changes (only if session already exists)
+  useEffect(() => {
+    const sessionId = sessionIdRef.current
+    if (!sessionId) return
+    createClient().from('sessions').update({ session_date: date }).eq('id', sessionId)
+  }, [date])
+
   const ensureSession = useCallback(async (): Promise<string | null> => {
     if (sessionIdRef.current) return sessionIdRef.current
+    if (ensureSessionPromiseRef.current) return ensureSessionPromiseRef.current
     const supabase = createClient()
     const userId = userIdRef.current
     if (!userId) { console.error('[ensureSession] userId is null — auth not ready'); return null }
-    const { data, error } = await supabase.from('sessions').insert({
-      user_id: userId, session_type: type, session_date: date,
-      total_volume: 0, sets_done: 0,
-      sets_total: prog.reduce((s, ex) => s + (ex.defaultSets[pType] || 3), 0),
-      note: '',
-    }).select().single()
-    if (error || !data) {
-      console.error('ensureSession error:', error)
-      return null
-    }
-    sessionIdRef.current = data.id
-    return data.id
+    const promise: Promise<string | null> = (async () => {
+      const { data, error } = await supabase.from('sessions').insert({
+        user_id: userId, session_type: type, session_date: date,
+        total_volume: 0, sets_done: 0,
+        sets_total: prog.reduce((s, ex) => s + (ex.defaultSets[pType] || 3), 0),
+        note: '',
+      }).select().single()
+      ensureSessionPromiseRef.current = null
+      if (error || !data) { console.error('ensureSession error:', error); return null }
+      sessionIdRef.current = data.id
+      return data.id
+    })()
+    ensureSessionPromiseRef.current = promise
+    return promise
   }, [type, date, prog, pType])
 
   const autoSaveSet = useCallback(async (exIdx: number, setIdx: number, setData: SetData) => {
@@ -144,7 +166,6 @@ export default function SessionPage() {
     const supabase = createClient()
     const ex = prog[exIdx]
 
-    // Delete then insert — no unique constraint required
     await supabase.from('session_sets')
       .delete()
       .eq('session_id', sessionId)
@@ -167,7 +188,6 @@ export default function SessionPage() {
       return
     }
 
-    // Recompute volume and sets_done from DB
     const { data: allSets } = await supabase
       .from('session_sets')
       .select('weight_kg, reps, completed')
@@ -223,71 +243,59 @@ export default function SessionPage() {
     })
   }, [])
 
+  const openHistory = async (exIdx: number) => {
+    setHistoryExIdx(exIdx)
+    setHistoryLoading(true)
+    setHistoryData([])
+
+    const exName = prog[exIdx].name
+    const supabase = createClient()
+    const userId = userIdRef.current
+    if (!userId) { setHistoryLoading(false); return }
+
+    const { data: sessions } = await supabase
+      .from('sessions')
+      .select('id, session_date')
+      .eq('user_id', userId)
+      .eq('session_type', type)
+      .order('session_date', { ascending: false })
+      .limit(6)
+
+    if (!sessions || sessions.length === 0) { setHistoryLoading(false); return }
+
+    const pastSessions = sessions
+      .filter(s => s.id !== sessionIdRef.current)
+      .slice(0, 5)
+
+    if (pastSessions.length === 0) { setHistoryLoading(false); return }
+
+    const { data: sets } = await supabase
+      .from('session_sets')
+      .select('session_id, set_index, weight_kg, reps')
+      .in('session_id', pastSessions.map(s => s.id))
+      .eq('exercise_name', exName)
+      .eq('completed', true)
+      .order('set_index')
+
+    const grouped = new Map<string, { kg: number | null; reps: number | null }[]>()
+    for (const s of pastSessions) grouped.set(s.id, [])
+    for (const s of sets || []) grouped.get(s.session_id)?.push({ kg: s.weight_kg, reps: s.reps })
+
+    const result: HistoryEntry[] = pastSessions
+      .filter(s => (grouped.get(s.id) || []).length > 0)
+      .map(s => ({ date: s.session_date, sets: grouped.get(s.id) || [] }))
+
+    setHistoryData(result)
+    setHistoryLoading(false)
+  }
+
   const allSets = Object.values(exData).flat()
   const setsDone = allSets.filter(d => d.done).length
   const setsTotal = allSets.length
-  const totalVol = allSets.reduce((s, d) => d.done && d.kg && d.reps ? s + parseFloat(d.kg) * parseInt(d.reps) : s, 0)
-
-  const saveNote = async () => {
-    const sessionId = sessionIdRef.current
-    if (!sessionId) return
-    setSaving(true)
-    await createClient().from('sessions').update({ note }).eq('id', sessionId)
-    setSaving(false)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
-  }
-
-  const finishSession = async () => {
-    // Use exData directly from closure (finishSession is not memoized so closure is always fresh)
-    const doneSets = Object.entries(exData).flatMap(([exIdxStr, sets]) =>
-      sets.map((s, setIdx) => ({ exIdx: parseInt(exIdxStr), setIdx, s })).filter(({ s }) => s.done)
-    )
-
-    if (doneSets.length === 0 && !sessionIdRef.current) {
-      router.push('/dashboard')
-      return
-    }
-
-    setSaving(true)
-    const supabase = createClient()
-    const sessionId = await ensureSession()
-    if (!sessionId) { setSaving(false); router.push('/dashboard'); return }
-
-    // Bulk delete + re-insert all done sets for a consistent final state
-    await supabase.from('session_sets').delete().eq('session_id', sessionId)
-
-    if (doneSets.length > 0) {
-      const { error: insertError } = await supabase.from('session_sets').insert(
-        doneSets.map(({ exIdx, setIdx, s }) => ({
-          session_id: sessionId,
-          exercise_index: exIdx,
-          exercise_name: prog[exIdx].name,
-          set_index: setIdx,
-          weight_kg: s.kg ? parseFloat(s.kg) : null,
-          reps: s.reps ? parseInt(s.reps) : null,
-          completed: true,
-        }))
-      )
-      if (insertError) console.error('finishSession insert error:', insertError)
-    }
-
-    const totalVolume = doneSets.reduce((sum, { s }) => {
-      if (s.kg && s.reps) return sum + parseFloat(s.kg) * parseInt(s.reps)
-      return sum
-    }, 0)
-
-    const { error: updateError } = await supabase.from('sessions').update({
-      sets_done: doneSets.length,
-      total_volume: Math.round(totalVolume),
-      session_date: date,
-      note,
-    }).eq('id', sessionId)
-    if (updateError) console.error('finishSession update error:', updateError)
-
-    setSaving(false)
-    router.push('/dashboard')
-  }
+  const totalVol = prog.reduce((total, ex, exIdx) => {
+    if (ex.kind === 'hiit') return total
+    return total + (exData[exIdx] || []).reduce((s: number, d: SetData) => d.done && d.kg && d.reps ? s + parseFloat(d.kg) * parseInt(d.reps) : s, 0)
+  }, 0)
 
   if (!profile) return (
     <div className="flex items-center justify-center min-h-screen">
@@ -296,7 +304,7 @@ export default function SessionPage() {
   )
 
   return (
-    <div className="max-w-lg mx-auto px-4 py-6 pb-28">
+    <div className="max-w-lg mx-auto px-4 py-6 pb-8">
       {/* Header */}
       <div className="flex items-center gap-3 mb-5">
         <button
@@ -370,6 +378,15 @@ export default function SessionPage() {
                   {targetStr && <p className="text-xs text-gray-400 mt-0.5">{targetStr}</p>}
                   {noteStr && <p className="text-xs text-gray-400 italic mt-0.5">{noteStr}</p>}
                 </div>
+                <button
+                  onClick={() => openHistory(exIdx)}
+                  title="Voir l'historique"
+                  className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-300 hover:text-teal-500 transition-colors flex-shrink-0"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </button>
                 <ExerciseDemo name={ex.name} gifFile={ex.demo.gifFile} youtube={ex.demo.youtube} tip={ex.demo.tip} />
               </div>
 
@@ -377,8 +394,8 @@ export default function SessionPage() {
               <div className="px-4 pb-1">
                 <div className="grid grid-cols-12 text-xs text-gray-400 font-medium mb-1.5 px-1">
                   <div className="col-span-2">#</div>
-                  <div className="col-span-4">Poids (kg)</div>
-                  <div className="col-span-4">Reps</div>
+                  <div className="col-span-4">{ex.kind === 'hiit' ? 'Résistance' : 'Poids (kg)'}</div>
+                  <div className="col-span-4">{ex.kind === 'hiit' ? 'Durée (s)' : 'Reps'}</div>
                   <div className="col-span-2 text-right">✓</div>
                 </div>
                 <div className="space-y-1.5">
@@ -391,7 +408,7 @@ export default function SessionPage() {
                       <div className="col-span-4">
                         <input
                           type="number"
-                          inputMode="decimal"
+                          inputMode="numeric"
                           placeholder="—"
                           value={s.kg}
                           onChange={e => updateSet(exIdx, setIdx, 'kg', e.target.value)}
@@ -449,7 +466,7 @@ export default function SessionPage() {
         })}
       </div>
 
-      {/* Note */}
+      {/* Note — auto-saved */}
       <div className="mt-6">
         <textarea
           value={note}
@@ -458,35 +475,74 @@ export default function SessionPage() {
           rows={3}
           className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-teal-300 resize-none"
         />
-        {note && (
-          <button
-            onClick={saveNote}
-            disabled={saving}
-            className="mt-2 w-full py-2.5 text-sm font-medium bg-teal-600 text-white rounded-xl hover:bg-teal-700 disabled:opacity-50 transition-colors"
-          >
-            {saving ? 'Sauvegarde…' : saved ? '✓ Note sauvegardée' : 'Sauvegarder la note'}
-          </button>
-        )}
       </div>
 
-      {/* Bottom bar */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-4 py-3 flex gap-3">
-        <button
-          onClick={() => router.push('/dashboard')}
-          className="flex-1 py-3 text-sm font-medium text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors"
-        >
-          Tableau de bord
-        </button>
-        {(setsDone > 0 || editMode) && (
-          <button
-            onClick={finishSession}
-            disabled={saving || autoSaveStatus === 'saving'}
-            className="flex-1 py-3 text-sm font-medium text-white bg-teal-600 rounded-xl hover:bg-teal-700 disabled:opacity-50 transition-colors"
+      {/* Exercise history modal */}
+      {historyExIdx !== null && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={() => setHistoryExIdx(null)}>
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+          <div
+            className="relative w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl max-h-[70vh] flex flex-col"
+            onClick={e => e.stopPropagation()}
           >
-            {saving ? 'Sauvegarde…' : 'Terminer'}
-          </button>
-        )}
-      </div>
+            <div className="flex justify-center pt-3 pb-1 sm:hidden flex-shrink-0">
+              <div className="w-10 h-1 bg-gray-200 rounded-full" />
+            </div>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 flex-shrink-0">
+              <div>
+                <p className="text-base font-semibold text-gray-900">{prog[historyExIdx].name}</p>
+                <p className="text-xs text-gray-400 mt-0.5">Séances précédentes</p>
+              </div>
+              <button
+                onClick={() => setHistoryExIdx(null)}
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+              {historyLoading ? (
+                <div className="flex justify-center py-8">
+                  <div className="w-6 h-6 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : historyData.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-8">Aucun historique disponible.</p>
+              ) : (
+                historyData.map((entry, i) => {
+                  const dateStr = new Date(entry.date).toLocaleDateString('fr-FR', {
+                    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+                  })
+                  return (
+                    <div key={i}>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{dateStr}</p>
+                      <div className="bg-gray-50 rounded-xl overflow-hidden">
+                        <div className="grid grid-cols-12 px-3 py-2 text-xs text-gray-400 font-medium border-b border-gray-100">
+                          <div className="col-span-2">Série</div>
+                          <div className="col-span-5">{prog[historyExIdx].kind === 'hiit' ? 'Résistance' : 'Poids'}</div>
+                          <div className="col-span-5">{prog[historyExIdx].kind === 'hiit' ? 'Durée' : 'Reps'}</div>
+                        </div>
+                        {entry.sets.map((s, si) => (
+                          <div key={si} className="grid grid-cols-12 px-3 py-2 text-sm border-t border-gray-100">
+                            <div className="col-span-2 text-gray-400">{si + 1}</div>
+                            <div className="col-span-5 text-gray-700">
+                              {s.kg != null ? (prog[historyExIdx].kind === 'hiit' ? s.kg : `${s.kg} kg`) : '—'}
+                            </div>
+                            <div className="col-span-5 text-gray-700">
+                              {s.reps != null ? (prog[historyExIdx].kind === 'hiit' ? fmtTime(s.reps) : s.reps) : '—'}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
