@@ -121,7 +121,7 @@ export default function SessionPage() {
     if (sessionIdRef.current) return sessionIdRef.current
     const supabase = createClient()
     const userId = userIdRef.current
-    if (!userId) return null
+    if (!userId) { console.error('[ensureSession] userId is null — auth not ready'); return null }
     const { data, error } = await supabase.from('sessions').insert({
       user_id: userId, session_type: type, session_date: date,
       total_volume: 0, sets_done: 0,
