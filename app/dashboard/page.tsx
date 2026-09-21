@@ -29,6 +29,16 @@ interface SessionRecord {
   note: string
 }
 
+/** Colonnes minimales nécessaires aux agrégats globaux (volume, semaines, recommandation). */
+interface LightSessionRecord {
+  id: string
+  session_type: AnySessionType
+  session_date: string
+  total_volume: number
+  sets_done: number
+  sets_total: number
+}
+
 interface Profile { name: string; email: string; program_role: string | null; profile_type: string | null }
 
 export default function Dashboard() {
@@ -36,7 +46,7 @@ export default function Dashboard() {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [role, setRole] = useState<ProgramRole>('vincent')
   const [history, setHistory] = useState<SessionRecord[]>([])
-  const [totalSessionsCount, setTotalSessionsCount] = useState<number | null>(null)
+  const [allSessions, setAllSessions] = useState<LightSessionRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [detailSession, setDetailSession] = useState<SessionRecord | null>(null)
   const [detailSets, setDetailSets] = useState<SetRecord[]>([])
@@ -47,16 +57,20 @@ export default function Dashboard() {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.replace('/login'); return }
 
-      const [{ data: prof }, { data: hist }, { count }] = await Promise.all([
+      // `history` (20 dernières, colonnes complètes) alimente uniquement la liste
+      // visuelle. `allSessions` (toutes les séances, colonnes minimales) alimente
+      // le volume total, les semaines consécutives et la recommandation : ces
+      // calculs ne doivent jamais être tronqués aux 20 dernières séances.
+      const [{ data: prof }, { data: hist }, { data: allLight }] = await Promise.all([
         supabase.from('profiles').select('name, email, program_role, profile_type').eq('id', session.user.id).single(),
         supabase.from('sessions').select('*').eq('user_id', session.user.id).order('session_date', { ascending: false }).limit(20),
-        supabase.from('sessions').select('*', { count: 'exact', head: true }).eq('user_id', session.user.id),
+        supabase.from('sessions').select('id, session_type, session_date, total_volume, sets_done, sets_total').eq('user_id', session.user.id),
       ])
 
       setProfile(prof)
       setRole(resolveProgramRole(prof))
       setHistory(hist || [])
-      setTotalSessionsCount(typeof count === 'number' ? count : null)
+      setAllSessions(allLight || [])
       setLoading(false)
     })
   }, [router])
@@ -70,7 +84,7 @@ export default function Dashboard() {
     if (!confirm('Supprimer cette séance ?')) return
     await createClient().from('sessions').delete().eq('id', id)
     setHistory(prev => prev.filter(h => h.id !== id))
-    setTotalSessionsCount(prev => (prev != null ? Math.max(0, prev - 1) : prev))
+    setAllSessions(prev => prev.filter(s => s.id !== id))
     if (detailSession?.id === id) setDetailSession(null)
   }
 
@@ -89,12 +103,14 @@ export default function Dashboard() {
     return acc
   }, {} as Record<string, SetRecord[]>)
 
-  const totalVol = history.reduce((s, h) => s + (h.total_volume || 0), 0)
+  // Volume total et semaines consécutives portent sur TOUTES les séances,
+  // jamais uniquement sur les 20 dernières chargées pour la liste visuelle.
+  const totalVol = allSessions.reduce((s, h) => s + (h.total_volume || 0), 0)
 
-  const completedDates = history.filter(h => isSessionCompleted(h.sets_total, h.sets_done)).map(h => h.session_date)
+  const completedDates = allSessions.filter(h => isSessionCompleted(h.sets_total, h.sets_done)).map(h => h.session_date)
   const consecutiveWeeks = computeConsecutiveWeeks(completedDates)
 
-  const recentNewSessions: SessionSummary[] = history
+  const recentNewSessions: SessionSummary[] = allSessions
     .filter(h => (NEW_SESSION_TYPES as readonly string[]).includes(h.session_type))
     .map(h => ({ sessionType: h.session_type, sessionDate: h.session_date, setsTotal: h.sets_total, setsDone: h.sets_done }))
   const lastCompletedNew = getLastCompletedNewSession(recentNewSessions)
@@ -102,7 +118,8 @@ export default function Dashboard() {
 
   const allowedSessions = NEW_SESSION_TYPES.filter(t => isSessionAllowedForRole(t as NewSessionType, role)) as NewSessionType[]
 
-  const sessionsLabel = totalSessionsCount != null ? `${totalSessionsCount} séance${totalSessionsCount > 1 ? 's' : ''} au total` : `${history.length} dernières séances`
+  const totalSessionsCount = allSessions.length
+  const sessionsLabel = `${totalSessionsCount} séance${totalSessionsCount > 1 ? 's' : ''} au total`
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-screen">
@@ -122,7 +139,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-3 gap-3 mb-6">
         {[
-          { label: 'Séances', val: totalSessionsCount ?? history.length },
+          { label: 'Séances', val: totalSessionsCount },
           { label: 'Volume total', val: `${(totalVol / 1000).toFixed(1)}t` },
           { label: 'Semaines', val: consecutiveWeeks },
         ].map(s => (

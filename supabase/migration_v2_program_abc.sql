@@ -101,15 +101,28 @@ begin
   end if;
 end $$;
 
--- Nouvelle contrainte d'unicité basée sur exercise_id, pour les nouvelles séries
--- uniquement. Index partiel : les anciennes lignes avec exercise_id = null n'y
--- participent pas (Postgres ne comparerait de toute façon jamais deux NULL comme
--- égaux, mais le filtre WHERE le rend explicite et évite tout doute).
-create unique index if not exists session_sets_unique_by_exercise_id
-  on session_sets (session_id, exercise_id, set_index)
-  where exercise_id is not null;
+-- Nouvelle contrainte d'unicité basée sur exercise_id, pour les nouvelles séries.
+-- Il s'agit d'une VRAIE contrainte UNIQUE (pas un index partiel) : PostgREST/
+-- Supabase ne peut cibler un upsert (ON CONFLICT) que sur une contrainte ou un
+-- index unique correspondant exactement aux colonnes indiquées, sans clause
+-- WHERE. Un index partiel `where exercise_id is not null` ne conviendrait pas
+-- comme cible onConflict pour un simple `on_conflict=session_id,exercise_id,set_index`.
+-- PostgreSQL autorise nativement plusieurs lignes avec exercise_id = null sous
+-- une contrainte UNIQUE classique (NULL n'est jamais considéré égal à NULL) :
+-- les anciennes séries sans exercise_id restent donc pleinement compatibles,
+-- sans avoir besoin d'un index partiel.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'session_sets_unique_by_exercise_id'
+  ) then
+    alter table session_sets
+      add constraint session_sets_unique_by_exercise_id
+      unique (session_id, exercise_id, set_index);
+  end if;
+end $$;
 
--- Index de confort pour l'historique par exercice et les listes de séances.
+-- Index de confort (non contraignant) pour l'historique par exercice.
 create index if not exists session_sets_exercise_id_idx
   on session_sets (exercise_id)
   where exercise_id is not null;
@@ -146,8 +159,10 @@ create index if not exists sessions_user_id_session_date_idx
 --    select session_type, count(*) from sessions group by 1;
 --    select count(*) from session_sets;
 --
--- 5. Le nouvel index partiel est bien en place :
---    select indexname from pg_indexes where indexname = 'session_sets_unique_by_exercise_id';
+-- 5. La nouvelle contrainte unique est bien en place et utilisable comme cible
+--    d'upsert (pas un index partiel) :
+--    select conname, pg_get_constraintdef(oid) from pg_constraint
+--    where conname = 'session_sets_unique_by_exercise_id';
 
 
 -- ============================================================================
@@ -163,7 +178,7 @@ create index if not exists sessions_user_id_session_date_idx
 -- alter table sessions add constraint sessions_session_type_check
 --   check (session_type in ('push', 'pull', 'legs'));
 --
--- drop index if exists session_sets_unique_by_exercise_id;
+-- alter table session_sets drop constraint if exists session_sets_unique_by_exercise_id;
 -- drop index if exists session_sets_exercise_id_idx;
 -- drop index if exists sessions_user_id_session_date_idx;
 --

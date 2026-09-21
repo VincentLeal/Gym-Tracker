@@ -8,16 +8,14 @@ import {
   ProgramRole, TrackingMode, AnySessionType,
 } from '@/lib/program'
 import { validateSessionRouteParam, SessionRouteValidation, computeSessionTotals, ExerciseSetsInput, isSessionCompleted } from '@/lib/sessionLogic'
-import { createSetSaveQueue, saveSet, updateSessionTotals, parseNumberOrNull, parseIntOrNull, SaveState } from '@/lib/sessionSets'
+import {
+  createSetSaveQueue, saveSet, updateSessionTotals, parseNumberOrNull, parseIntOrNull,
+  rowToLocalSet, hydrateNewSessionSets, persistSetAndSyncTotals,
+  SaveState, LocalSet, ExerciseHydrationSpec,
+} from '@/lib/sessionSets'
 import ExerciseCard from '@/components/ExerciseCard'
 import SaveStatus from '@/components/SaveStatus'
 
-interface LocalSet {
-  done: boolean
-  primary: string
-  secondary: string
-  saveState: SaveState
-}
 type SetsState = Record<string, LocalSet[]>
 
 interface ExerciseView {
@@ -77,16 +75,6 @@ function buildTotalsInput(exercises: ExerciseView[], data: SetsState): ExerciseS
   }))
 }
 
-function rowToLocalSet(mode: TrackingMode, row: any): LocalSet {
-  if (mode === 'cardio') {
-    return { done: !!row.completed, primary: row.resistance_note ?? '', secondary: row.duration_minutes != null ? String(row.duration_minutes) : '', saveState: 'idle' }
-  }
-  if (mode === 'bodyweight') {
-    return { done: !!row.completed, primary: '', secondary: row.reps != null ? String(row.reps) : '', saveState: 'idle' }
-  }
-  return { done: !!row.completed, primary: row.weight_kg != null ? String(row.weight_kg) : '', secondary: row.reps != null ? String(row.reps) : '', saveState: 'idle' }
-}
-
 function formatHistoryRow(mode: TrackingMode, row: any): { primary: string; secondary: string } {
   if (mode === 'cardio') return { primary: row.resistance_note || '—', secondary: row.duration_minutes != null ? `${row.duration_minutes} min` : '—' }
   if (mode === 'bodyweight') return { primary: '—', secondary: row.reps != null ? String(row.reps) : '—' }
@@ -118,16 +106,23 @@ export default function SessionPage() {
   const routeInfoRef = useRef<SessionRouteValidation>({ kind: 'invalid' })
   const ensureSessionPromiseRef = useRef<Promise<string | null> | null>(null)
   const saveQueueRef = useRef(createSetSaveQueue())
+  const totalsQueueRef = useRef(createSetSaveQueue())
   const debounceTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  const noteEffectMountedRef = useRef(false)
 
-  useEffect(() => { exDataRef.current = exData }, [exData])
   useEffect(() => { exercisesRef.current = exercises }, [exercises])
   useEffect(() => { dateRef.current = date }, [date])
 
-  const pushTotals = useCallback(async (exs: ExerciseView[], data: SetsState, sessionId: string | null) => {
-    if (!sessionId) return
-    const totals = computeSessionTotals(buildTotalsInput(exs, data))
-    await updateSessionTotals(sessionId, totals)
+  // Met à jour exDataRef de façon synchrone, au même moment que le state React
+  // (et non via un useEffect qui ne se déclenche qu'après le prochain rendu),
+  // pour que tout calcul de totaux lisant exDataRef juste après une action
+  // utilisateur voie toujours l'état le plus frais, sans décalage possible.
+  const updateExData = useCallback((updater: (prev: SetsState) => SetsState) => {
+    setExData(prev => {
+      const next = updater(prev)
+      exDataRef.current = next
+      return next
+    })
   }, [])
 
   // -------------------------------------------------------------------------
@@ -184,12 +179,16 @@ export default function SessionPage() {
           }
         })
 
-        const initData: SetsState = {}
-        baseExercises.forEach(ex => {
+        const hydrationSpecs: ExerciseHydrationSpec[] = baseExercises.map(ex => {
           const prescription = PROGRAMS[validation.type].find(e => e.exerciseId === ex.exerciseId)?.prescriptions[role]
-          const count = prescription?.defaultSets ?? 1
-          initData[ex.key] = Array.from({ length: count }, () => ({ done: false, primary: '', secondary: '', saveState: 'idle' as SaveState }))
+          return { key: ex.key, exerciseId: ex.exerciseId, defaultSets: prescription?.defaultSets ?? 1, trackingMode: ex.trackingMode }
         })
+
+        // Toujours partir des séries prévues par le programme, puis fusionner les
+        // lignes déjà sauvegardées par-dessus (par exercise_id + set_index) : une
+        // séance chargée avec seulement la série 0 sauvegardée doit quand même
+        // afficher toutes les séries prévues, pas seulement celle-ci.
+        let initData: SetsState = hydrateNewSessionSets(hydrationSpecs, [])
 
         if (searchId) {
           setEditMode(true)
@@ -204,25 +203,14 @@ export default function SessionPage() {
           setDate(existingSession.session_date)
           setNote(existingSession.note || '')
 
-          const byExerciseId = new Map<string, any[]>()
-          for (const s of existingSets || []) {
-            if (!s.exercise_id) continue
-            if (!byExerciseId.has(s.exercise_id)) byExerciseId.set(s.exercise_id, [])
-            byExerciseId.get(s.exercise_id)!.push(s)
-          }
-
-          baseExercises.forEach(ex => {
-            const rows = ex.exerciseId ? byExerciseId.get(ex.exerciseId) : undefined
-            if (rows && rows.length > 0) {
-              rows.sort((a, b) => a.set_index - b.set_index)
-              initData[ex.key] = rows.map(r => rowToLocalSet(ex.trackingMode, r))
-            }
-          })
+          initData = hydrateNewSessionSets(hydrationSpecs, existingSets || [])
         }
 
         setExercises(baseExercises)
-        setExData(initData)
-        pushTotals(baseExercises, initData, sessionIdRef.current)
+        updateExData(() => initData)
+        // La simple consultation/édition d'une séance ne doit déclencher aucune
+        // écriture : les totaux ne sont resynchronisés qu'après une action
+        // utilisateur réelle (voir persistSet).
       } else {
         // Séance historique (push/pull/legs) : édition uniquement, jamais de création.
         if (!searchId) { router.replace('/dashboard'); return }
@@ -263,13 +251,14 @@ export default function SessionPage() {
         })
 
         setExercises(legacyExercises)
-        setExData(initData)
-        pushTotals(legacyExercises, initData, searchId)
+        updateExData(() => initData)
+        // Idem : consulter une ancienne séance PPL ne doit ni recalculer ni
+        // réécrire ses totaux historiques (sets_total/sets_done/total_volume).
       }
 
       setReady(true)
     })
-  }, [params.type, router, pushTotals])
+  }, [params.type, router, updateExData])
 
   // -------------------------------------------------------------------------
   // Auto-save note / date
@@ -306,6 +295,16 @@ export default function SessionPage() {
   }, [router])
 
   useEffect(() => {
+    // Ignore le montage initial (état par défaut ou note chargée depuis la base) :
+    // seule une vraie modification de l'utilisateur doit déclencher une sauvegarde.
+    if (!noteEffectMountedRef.current) {
+      noteEffectMountedRef.current = true
+      return
+    }
+    // Pas de séance existante et rien à sauvegarder : ne crée surtout pas de
+    // séance vide juste parce que l'utilisateur a ouvert puis quitté la page.
+    if (!sessionIdRef.current && note.trim() === '') return
+
     const t = setTimeout(async () => {
       let sessionId = sessionIdRef.current
       if (!sessionId) sessionId = await ensureSession()
@@ -326,32 +325,37 @@ export default function SessionPage() {
   // Sauvegarde des séries
   // -------------------------------------------------------------------------
   const setRowSaveState = useCallback((key: string, setIdx: number, state: SaveState) => {
-    setExData(prev => {
+    updateExData(prev => {
       const rows = prev[key]
       if (!rows || !rows[setIdx]) return prev
       const nextRows = rows.slice()
       nextRows[setIdx] = { ...nextRows[setIdx], saveState: state }
       return { ...prev, [key]: nextRows }
     })
-  }, [])
+  }, [updateExData])
 
   const persistSet = useCallback(async (view: ExerciseView, setIdx: number, snapshot: LocalSet) => {
     setRowSaveState(view.key, setIdx, 'saving')
     setGlobalSaveState('saving')
 
-    let sessionId = sessionIdRef.current
-    if (!sessionId) sessionId = await ensureSession()
-    if (!sessionId) {
-      setRowSaveState(view.key, setIdx, 'error')
-      setGlobalSaveState('error')
-      return
-    }
-
     const payload = buildPayload(view.trackingMode, snapshot)
-    const identity = { sessionId, exerciseIndex: view.exerciseIndex, exerciseName: view.name, exerciseId: view.exerciseId, setIndex: setIdx }
+    const identity = { exerciseIndex: view.exerciseIndex, exerciseName: view.name, exerciseId: view.exerciseId, setIndex: setIdx }
 
-    const { error } = await saveQueueRef.current(`${view.key}:${setIdx}`, () =>
-      saveSet(identity, { ...payload, completed: snapshot.done })
+    const { error } = await persistSetAndSyncTotals(
+      `${view.key}:${setIdx}`,
+      identity,
+      { ...payload, completed: snapshot.done },
+      {
+        ensureSessionId: ensureSession,
+        getSessionId: () => sessionIdRef.current,
+        saveSetFn: saveSet,
+        updateTotalsFn: updateSessionTotals,
+        // Lu paresseusement au moment où la tâche de synchronisation s'exécute
+        // réellement dans la file, jamais avant : voir persistSetAndSyncTotals.
+        computeTotals: () => computeSessionTotals(buildTotalsInput(exercisesRef.current, exDataRef.current)),
+        saveQueue: saveQueueRef.current,
+        totalsQueue: totalsQueueRef.current,
+      }
     )
 
     if (error) {
@@ -364,13 +368,11 @@ export default function SessionPage() {
     setGlobalSaveState('saved')
     setTimeout(() => setRowSaveState(view.key, setIdx, 'idle'), 1200)
     setTimeout(() => setGlobalSaveState(prev => (prev === 'saved' ? 'idle' : prev)), 1200)
-
-    pushTotals(exercisesRef.current, exDataRef.current, sessionId)
-  }, [ensureSession, pushTotals, setRowSaveState])
+  }, [ensureSession, setRowSaveState])
 
   const toggleDone = useCallback((view: ExerciseView, setIdx: number) => {
     let updatedSnapshot: LocalSet | null = null
-    setExData(prev => {
+    updateExData(prev => {
       const rows = prev[view.key] || []
       const current = rows[setIdx]
       if (!current) return prev
@@ -385,12 +387,12 @@ export default function SessionPage() {
       delete debounceTimersRef.current[timerKey]
     }
     if (updatedSnapshot) persistSet(view, setIdx, updatedSnapshot)
-  }, [persistSet])
+  }, [persistSet, updateExData])
 
   const updateField = useCallback((view: ExerciseView, setIdx: number, field: 'primary' | 'secondary', value: string) => {
     let updatedSnapshot: LocalSet | null = null
     let wasDone = false
-    setExData(prev => {
+    updateExData(prev => {
       const rows = prev[view.key] || []
       const current = rows[setIdx]
       if (!current) return prev
@@ -410,7 +412,7 @@ export default function SessionPage() {
       delete debounceTimersRef.current[timerKey]
       persistSet(view, setIdx, snapshotForSave)
     }, 700)
-  }, [persistSet])
+  }, [persistSet, updateExData])
 
   const retryRow = useCallback((view: ExerciseView, setIdx: number) => {
     const snapshot = exDataRef.current[view.key]?.[setIdx]
@@ -418,16 +420,16 @@ export default function SessionPage() {
   }, [persistSet])
 
   const addSet = useCallback((view: ExerciseView) => {
-    setExData(prev => {
+    updateExData(prev => {
       const rows = prev[view.key] || []
       const last = rows[rows.length - 1]
       const nextRow: LocalSet = { done: false, primary: last?.primary || '', secondary: last?.secondary || '', saveState: 'idle' }
       return { ...prev, [view.key]: [...rows, nextRow] }
     })
-  }, [])
+  }, [updateExData])
 
   const copyToNext = useCallback((view: ExerciseView, setIdx: number) => {
-    setExData(prev => {
+    updateExData(prev => {
       const rows = prev[view.key] || []
       const current = rows[setIdx]
       const next = rows[setIdx + 1]
@@ -436,7 +438,7 @@ export default function SessionPage() {
       nextRows[setIdx + 1] = { ...next, primary: current.primary, secondary: current.secondary }
       return { ...prev, [view.key]: nextRows }
     })
-  }, [])
+  }, [updateExData])
 
   // -------------------------------------------------------------------------
   // Historique par exercice
