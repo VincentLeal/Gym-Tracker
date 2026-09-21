@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
+import { ProgramRole } from '@/lib/program'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -9,7 +10,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [name, setName] = useState('')
-  const [profileType, setProfileType] = useState<'male' | 'female'>('male')
+  const [programRole, setProgramRole] = useState<ProgramRole>('vincent')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -21,7 +22,13 @@ export default function LoginPage() {
       const { error: signUpError } = await supabase.auth.signUp({ email, password })
       if (signUpError) { setError(signUpError.message); setLoading(false); return }
       const { data: { user } } = await supabase.auth.getUser()
-      if (user) await supabase.from('profiles').update({ name, profile_type: profileType }).eq('id', user.id)
+      if (user) {
+        await supabase.from('profiles').update({
+          name,
+          program_role: programRole,
+          profile_type: programRole === 'vincent' ? 'male' : 'female',
+        }).eq('id', user.id)
+      }
     } else {
       const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
       if (signInError) { setError('Email ou mot de passe incorrect.'); setLoading(false); return }
@@ -35,7 +42,7 @@ export default function LoginPage() {
         <div className="text-center mb-8">
           <div className="text-4xl mb-2">💪</div>
           <h1 className="text-2xl font-semibold text-gray-900">Gym Tracker</h1>
-          <p className="text-gray-500 text-sm mt-1">Push · Pull · Legs</p>
+          <p className="text-gray-500 text-sm mt-1">Séances A · B · C</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
           {mode === 'signup' && (
@@ -46,19 +53,19 @@ export default function LoginPage() {
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
               </div>
               <div>
-                <label className="block text-sm text-gray-600 mb-2">Programme</label>
+                <label className="block text-sm text-gray-600 mb-2">Qui es-tu ?</label>
                 <div className="grid grid-cols-2 gap-2">
-                  <button onClick={() => setProfileType('male')}
-                    className={`py-2.5 rounded-xl border text-sm font-medium transition-colors ${profileType === 'male' ? 'bg-teal-600 text-white border-teal-600' : 'border-gray-200 text-gray-600'}`}>
-                    Prise de muscle
+                  <button onClick={() => setProgramRole('vincent')}
+                    className={`py-2.5 rounded-xl border text-sm font-medium transition-colors ${programRole === 'vincent' ? 'bg-teal-600 text-white border-teal-600' : 'border-gray-200 text-gray-600'}`}>
+                    Vincent
                   </button>
-                  <button onClick={() => setProfileType('female')}
-                    className={`py-2.5 rounded-xl border text-sm font-medium transition-colors ${profileType === 'female' ? 'bg-teal-600 text-white border-teal-600' : 'border-gray-200 text-gray-600'}`}>
-                    Perte de gras
+                  <button onClick={() => setProgramRole('axelle')}
+                    className={`py-2.5 rounded-xl border text-sm font-medium transition-colors ${programRole === 'axelle' ? 'bg-teal-600 text-white border-teal-600' : 'border-gray-200 text-gray-600'}`}>
+                    Axelle
                   </button>
                 </div>
                 <p className="text-xs text-gray-400 mt-1.5">
-                  {profileType === 'male' ? 'Charges lourdes, focus hypertrophie' : 'HIIT cardio + exercices ensemble'}
+                  {programRole === 'vincent' ? 'Séances A, B et C' : 'Séances A et B'}
                 </p>
               </div>
             </>

@@ -2,19 +2,26 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
-import { SESSION_COLORS, SESSION_LABELS, SessionType } from '@/lib/program'
+import {
+  NEW_SESSION_TYPES, SESSION_PARTICIPANTS, SESSION_ESTIMATED_DURATION,
+  getSessionColors, getSessionLabel, resolveProgramRole, isSessionAllowedForRole,
+  AnySessionType, NewSessionType, ProgramRole,
+} from '@/lib/program'
+import { isSessionCompleted, computeConsecutiveWeeks, getLastCompletedNewSession, getNextRecommendedSession, SessionSummary } from '@/lib/sessionLogic'
 
 interface SetRecord {
   exercise_name: string
   set_index: number
   weight_kg: number | null
   reps: number | null
+  duration_minutes: number | null
+  resistance_note: string | null
   completed: boolean
 }
 
 interface SessionRecord {
   id: string
-  session_type: SessionType
+  session_type: AnySessionType
   session_date: string
   total_volume: number
   sets_done: number
@@ -22,17 +29,14 @@ interface SessionRecord {
   note: string
 }
 
-interface Profile { name: string; email: string }
-const TYPE_LABELS: Record<SessionType, string> = { push: 'Push', pull: 'Pull', legs: 'Legs' }
-
-function isSessionCompleted(s: SessionRecord) {
-  return s.sets_total > 0 && s.sets_done >= s.sets_total
-}
+interface Profile { name: string; email: string; program_role: string | null; profile_type: string | null }
 
 export default function Dashboard() {
   const router = useRouter()
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [role, setRole] = useState<ProgramRole>('vincent')
   const [history, setHistory] = useState<SessionRecord[]>([])
+  const [totalSessionsCount, setTotalSessionsCount] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [detailSession, setDetailSession] = useState<SessionRecord | null>(null)
   const [detailSets, setDetailSets] = useState<SetRecord[]>([])
@@ -42,12 +46,17 @@ export default function Dashboard() {
     const supabase = createClient()
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.replace('/login'); return }
-      const [{ data: prof }, { data: hist }] = await Promise.all([
-        supabase.from('profiles').select('name, email').eq('id', session.user.id).single(),
+
+      const [{ data: prof }, { data: hist }, { count }] = await Promise.all([
+        supabase.from('profiles').select('name, email, program_role, profile_type').eq('id', session.user.id).single(),
         supabase.from('sessions').select('*').eq('user_id', session.user.id).order('session_date', { ascending: false }).limit(20),
+        supabase.from('sessions').select('*', { count: 'exact', head: true }).eq('user_id', session.user.id),
       ])
+
       setProfile(prof)
+      setRole(resolveProgramRole(prof))
       setHistory(hist || [])
+      setTotalSessionsCount(typeof count === 'number' ? count : null)
       setLoading(false)
     })
   }, [router])
@@ -61,6 +70,7 @@ export default function Dashboard() {
     if (!confirm('Supprimer cette séance ?')) return
     await createClient().from('sessions').delete().eq('id', id)
     setHistory(prev => prev.filter(h => h.id !== id))
+    setTotalSessionsCount(prev => (prev != null ? Math.max(0, prev - 1) : prev))
     if (detailSession?.id === id) setDetailSession(null)
   }
 
@@ -80,17 +90,19 @@ export default function Dashboard() {
   }, {} as Record<string, SetRecord[]>)
 
   const totalVol = history.reduce((s, h) => s + (h.total_volume || 0), 0)
-  const streak = (() => {
-    if (!history.length) return 0
-    let count = 0
-    const now = new Date()
-    for (const h of history) {
-      const diff = Math.floor((now.getTime() - new Date(h.session_date).getTime()) / 86400000)
-      if (diff <= (count + 1) * 7) count++
-      else break
-    }
-    return count
-  })()
+
+  const completedDates = history.filter(h => isSessionCompleted(h.sets_total, h.sets_done)).map(h => h.session_date)
+  const consecutiveWeeks = computeConsecutiveWeeks(completedDates)
+
+  const recentNewSessions: SessionSummary[] = history
+    .filter(h => (NEW_SESSION_TYPES as readonly string[]).includes(h.session_type))
+    .map(h => ({ sessionType: h.session_type, sessionDate: h.session_date, setsTotal: h.sets_total, setsDone: h.sets_done }))
+  const lastCompletedNew = getLastCompletedNewSession(recentNewSessions)
+  const recommended = getNextRecommendedSession(role, lastCompletedNew)
+
+  const allowedSessions = NEW_SESSION_TYPES.filter(t => isSessionAllowedForRole(t as NewSessionType, role)) as NewSessionType[]
+
+  const sessionsLabel = totalSessionsCount != null ? `${totalSessionsCount} séance${totalSessionsCount > 1 ? 's' : ''} au total` : `${history.length} dernières séances`
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-screen">
@@ -103,13 +115,17 @@ export default function Dashboard() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold">Salut {profile?.name || 'toi'} 👋</h1>
-          <p className="text-sm text-gray-500">{history.length} séances au total</p>
+          <p className="text-sm text-gray-500">{sessionsLabel}</p>
         </div>
         <button onClick={logout} className="text-sm text-gray-400 hover:text-gray-600">Déconnexion</button>
       </div>
 
       <div className="grid grid-cols-3 gap-3 mb-6">
-        {[{ label: 'Séances', val: history.length }, { label: 'Volume total', val: `${(totalVol/1000).toFixed(1)}t` }, { label: 'Semaines', val: streak }].map(s => (
+        {[
+          { label: 'Séances', val: totalSessionsCount ?? history.length },
+          { label: 'Volume total', val: `${(totalVol / 1000).toFixed(1)}t` },
+          { label: 'Semaines', val: consecutiveWeeks },
+        ].map(s => (
           <div key={s.label} className="bg-white rounded-xl border border-gray-100 p-3 text-center">
             <div className="text-xl font-semibold text-teal-700">{s.val}</div>
             <div className="text-xs text-gray-500 mt-0.5">{s.label}</div>
@@ -119,13 +135,25 @@ export default function Dashboard() {
 
       <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Démarrer une séance</p>
       <div className="space-y-2 mb-8">
-        {(['push', 'pull', 'legs'] as SessionType[]).map(type => {
-          const c = SESSION_COLORS[type]
+        {allowedSessions.map(type => {
+          const c = getSessionColors(type)
+          const isRecommended = type === recommended
           return (
-            <button key={type} onClick={() => router.push(`/session/${type}`)}
-              className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl border ${c.bg} ${c.border} ${c.text} transition-opacity hover:opacity-80`}>
-              <span className="font-medium text-sm">{SESSION_LABELS[type]}</span>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <button
+              key={type}
+              onClick={() => router.push(`/session/${type}`)}
+              className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl border transition-opacity hover:opacity-80 ${c.bg} ${c.border} ${c.text} ${isRecommended ? 'ring-2 ring-offset-1 ring-teal-400' : ''}`}
+            >
+              <span className="text-left">
+                <span className="flex items-center gap-2">
+                  <span className="font-medium text-sm">{getSessionLabel(type)}</span>
+                  {isRecommended && (
+                    <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold bg-teal-600 text-white">Suggérée</span>
+                  )}
+                </span>
+                <span className="block text-xs opacity-70 mt-0.5">{SESSION_ESTIMATED_DURATION[type]}</span>
+              </span>
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </button>
@@ -138,18 +166,18 @@ export default function Dashboard() {
           <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Historique</p>
           <div className="space-y-2">
             {history.map(h => {
-              const c = SESSION_COLORS[h.session_type]
+              const c = getSessionColors(h.session_type)
               const date = new Date(h.session_date).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })
-              const completed = isSessionCompleted(h)
+              const completed = isSessionCompleted(h.sets_total, h.sets_done)
               return (
                 <div
                   key={h.id}
                   className={`rounded-xl border p-4 ${completed ? 'bg-emerald-50/70 border-emerald-200' : 'bg-amber-50/40 border-amber-200'}`}
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-medium text-gray-700 capitalize">{date}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.bg} ${c.text}`}>{TYPE_LABELS[h.session_type]}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.bg} ${c.text}`}>{getSessionLabel(h.session_type)}</span>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-semibold inline-flex items-center gap-1 ${completed ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
                         {completed ? (
                           <>
@@ -215,10 +243,10 @@ export default function Dashboard() {
                   {new Date(detailSession.session_date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  {TYPE_LABELS[detailSession.session_type]} · {detailSession.total_volume?.toLocaleString('fr-FR')} kg · {detailSession.sets_done}/{detailSession.sets_total} séries
+                  {getSessionLabel(detailSession.session_type)} · {detailSession.total_volume?.toLocaleString('fr-FR')} kg · {detailSession.sets_done}/{detailSession.sets_total} séries
                 </p>
                 <div className="mt-1.5">
-                  {isSessionCompleted(detailSession) ? (
+                  {isSessionCompleted(detailSession.sets_total, detailSession.sets_done) ? (
                     <span className="text-xs px-2 py-0.5 rounded-full font-semibold inline-flex items-center gap-1 bg-emerald-100 text-emerald-700">
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
@@ -256,30 +284,37 @@ export default function Dashboard() {
               ) : Object.keys(groupedSets).length === 0 ? (
                 <p className="text-sm text-gray-400 text-center py-8">Aucune série enregistrée.</p>
               ) : (
-                Object.entries(groupedSets).map(([exName, sets]) => (
-                  <div key={exName}>
-                    <p className="text-sm font-medium text-gray-800 mb-2">{exName}</p>
-                    <div className="bg-gray-50 rounded-xl overflow-hidden">
-                      <div className="grid grid-cols-12 px-3 py-2 text-xs text-gray-400 font-medium border-b border-gray-100">
-                        <div className="col-span-2">Série</div>
-                        <div className="col-span-4">Poids</div>
-                        <div className="col-span-4">Reps</div>
-                        <div className="col-span-2 text-right">Vol.</div>
+                Object.entries(groupedSets).map(([exName, sets]) => {
+                  const isCardioGroup = sets.some(s => s.duration_minutes != null || s.resistance_note != null)
+                  return (
+                    <div key={exName}>
+                      <p className="text-sm font-medium text-gray-800 mb-2">{exName}</p>
+                      <div className="bg-gray-50 rounded-xl overflow-hidden">
+                        <div className="grid grid-cols-12 px-3 py-2 text-xs text-gray-400 font-medium border-b border-gray-100">
+                          <div className="col-span-2">Série</div>
+                          <div className="col-span-4">{isCardioGroup ? 'Durée' : 'Poids'}</div>
+                          <div className="col-span-4">{isCardioGroup ? 'Résistance' : 'Reps'}</div>
+                          <div className="col-span-2 text-right">Vol.</div>
+                        </div>
+                        {sets.map((s, i) => {
+                          const vol = !isCardioGroup && s.weight_kg && s.reps ? Math.round(s.weight_kg * s.reps) : null
+                          return (
+                            <div key={i} className={`grid grid-cols-12 px-3 py-2 text-sm border-t border-gray-100 ${!s.completed ? 'opacity-40' : ''}`}>
+                              <div className="col-span-2 text-gray-400">{s.set_index + 1}</div>
+                              <div className="col-span-4 text-gray-700">
+                                {isCardioGroup ? (s.duration_minutes != null ? `${s.duration_minutes} min` : '—') : (s.weight_kg ? `${s.weight_kg} kg` : '—')}
+                              </div>
+                              <div className="col-span-4 text-gray-700">
+                                {isCardioGroup ? (s.resistance_note || '—') : (s.reps ?? '—')}
+                              </div>
+                              <div className="col-span-2 text-right text-gray-400 text-xs">{vol ?? '—'}</div>
+                            </div>
+                          )
+                        })}
                       </div>
-                      {sets.map((s, i) => {
-                        const vol = s.weight_kg && s.reps ? Math.round(s.weight_kg * s.reps) : null
-                        return (
-                          <div key={i} className={`grid grid-cols-12 px-3 py-2 text-sm border-t border-gray-100 ${!s.completed ? 'opacity-40' : ''}`}>
-                            <div className="col-span-2 text-gray-400">{s.set_index + 1}</div>
-                            <div className="col-span-4 text-gray-700">{s.weight_kg ? `${s.weight_kg} kg` : '—'}</div>
-                            <div className="col-span-4 text-gray-700">{s.reps ?? '—'}</div>
-                            <div className="col-span-2 text-right text-gray-400 text-xs">{vol ?? '—'}</div>
-                          </div>
-                        )
-                      })}
                     </div>
-                  </div>
-                ))
+                  )
+                })
               )}
               {detailSession.note && (
                 <div className="bg-teal-50 rounded-xl p-3">
