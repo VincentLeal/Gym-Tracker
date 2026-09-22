@@ -11,12 +11,11 @@ import { validateSessionRouteParam, SessionRouteValidation, computeSessionTotals
 import {
   createSetSaveQueue, saveSet, updateSessionTotals, parseNumberOrNull, parseIntOrNull,
   rowToLocalSet, hydrateNewSessionSets, persistSetAndSyncTotals,
-  SaveState, LocalSet, ExerciseHydrationSpec,
+  applyToggleDone, applyFieldUpdate, applyConfirmedSet,
+  SaveState, LocalSet, SetsState, ExerciseHydrationSpec,
 } from '@/lib/sessionSets'
 import ExerciseCard from '@/components/ExerciseCard'
 import SaveStatus from '@/components/SaveStatus'
-
-type SetsState = Record<string, LocalSet[]>
 
 interface ExerciseView {
   key: string
@@ -101,6 +100,12 @@ export default function SessionPage() {
   const sessionIdRef = useRef<string | null>(null)
   const userIdRef = useRef<string | null>(null)
   const exDataRef = useRef<SetsState>({})
+  // État confirmé : uniquement les séries dont la sauvegarde a réellement
+  // réussi en base (voir markSetConfirmed / persistSet). C'est la seule source
+  // utilisée pour calculer les totaux envoyés au serveur — jamais exDataRef,
+  // qui contient l'état local optimiste et peut inclure une modification pas
+  // encore sauvegardée, ou dont la sauvegarde a échoué.
+  const confirmedDataRef = useRef<SetsState>({})
   const exercisesRef = useRef<ExerciseView[]>([])
   const dateRef = useRef(date)
   const routeInfoRef = useRef<SessionRouteValidation>({ kind: 'invalid' })
@@ -113,16 +118,26 @@ export default function SessionPage() {
   useEffect(() => { exercisesRef.current = exercises }, [exercises])
   useEffect(() => { dateRef.current = date }, [date])
 
-  // Met à jour exDataRef de façon synchrone, au même moment que le state React
-  // (et non via un useEffect qui ne se déclenche qu'après le prochain rendu),
-  // pour que tout calcul de totaux lisant exDataRef juste après une action
-  // utilisateur voie toujours l'état le plus frais, sans décalage possible.
+  // exDataRef.current est la source synchrone : l'updater est appliqué
+  // immédiatement à exDataRef.current (jamais à une valeur `prev` capturée par
+  // React), et exDataRef.current/le retour de la fonction reflètent le nouvel
+  // état avant même que setExData ne déclenche un re-rendu. React ne garantit
+  // pas que le callback passé à setExData s'exécute de façon synchrone ; les
+  // appelants (toggleDone, updateField, ...) ne doivent donc jamais dépendre
+  // d'une variable renseignée à l'intérieur d'un tel callback pour déclencher
+  // une sauvegarde — ils doivent utiliser la valeur renvoyée par updateExData.
   const updateExData = useCallback((updater: (prev: SetsState) => SetsState) => {
-    setExData(prev => {
-      const next = updater(prev)
-      exDataRef.current = next
-      return next
-    })
+    const next = updater(exDataRef.current)
+    exDataRef.current = next
+    setExData(next)
+    return next
+  }, [])
+
+  // Marque une série comme confirmée (sauvegardée avec succès en base) dans
+  // confirmedDataRef, seule source utilisée pour calculer les totaux. Jamais
+  // appelé si la sauvegarde échoue (voir persistSet / onSaveSuccess).
+  const markSetConfirmed = useCallback((key: string, setIdx: number, snapshot: LocalSet) => {
+    confirmedDataRef.current = applyConfirmedSet(confirmedDataRef.current, key, setIdx, snapshot)
   }, [])
 
   // -------------------------------------------------------------------------
@@ -208,6 +223,11 @@ export default function SessionPage() {
 
         setExercises(baseExercises)
         updateExData(() => initData)
+        // L'état confirmé démarre identique à l'état hydraté : c'est exactement
+        // ce que la base contient déjà (séries sauvegardées + séries par défaut
+        // pas encore créées). Toute modification locale ultérieure ne le
+        // touchera qu'après la réussite de sa propre sauvegarde.
+        confirmedDataRef.current = initData
         // La simple consultation/édition d'une séance ne doit déclencher aucune
         // écriture : les totaux ne sont resynchronisés qu'après une action
         // utilisateur réelle (voir persistSet).
@@ -252,6 +272,7 @@ export default function SessionPage() {
 
         setExercises(legacyExercises)
         updateExData(() => initData)
+        confirmedDataRef.current = initData
         // Idem : consulter une ancienne séance PPL ne doit ni recalculer ni
         // réécrire ses totaux historiques (sets_total/sets_done/total_volume).
       }
@@ -273,7 +294,11 @@ export default function SessionPage() {
 
     const promise: Promise<string | null> = (async () => {
       const supabase = createClient()
-      const totals = computeSessionTotals(buildTotalsInput(exercisesRef.current, exDataRef.current))
+      // État confirmé, pas exDataRef : ensureSession peut être déclenché par la
+      // toute première modification locale, avant même que sa propre
+      // sauvegarde n'ait réussi — la ligne sessions insérée ici ne doit donc
+      // pas déjà compter cette modification optimiste.
+      const totals = computeSessionTotals(buildTotalsInput(exercisesRef.current, confirmedDataRef.current))
       const { data, error } = await supabase.from('sessions').insert({
         user_id: userId,
         session_type: validation.type,
@@ -350,9 +375,16 @@ export default function SessionPage() {
         getSessionId: () => sessionIdRef.current,
         saveSetFn: saveSet,
         updateTotalsFn: updateSessionTotals,
+        // Marque cette série comme confirmée dès que sa sauvegarde réussit,
+        // avant que la tâche de totaux (ci-dessous) ne s'exécute — jamais
+        // appelé si saveSetFn échoue (voir persistSetAndSyncTotals).
+        onSaveSuccess: () => markSetConfirmed(view.key, setIdx, snapshot),
         // Lu paresseusement au moment où la tâche de synchronisation s'exécute
         // réellement dans la file, jamais avant : voir persistSetAndSyncTotals.
-        computeTotals: () => computeSessionTotals(buildTotalsInput(exercisesRef.current, exDataRef.current)),
+        // Toujours l'état confirmé (confirmedDataRef), jamais exDataRef : une
+        // modification locale non encore sauvegardée, ou dont la sauvegarde a
+        // échoué, ne doit jamais fuiter dans les totaux poussés au serveur.
+        computeTotals: () => computeSessionTotals(buildTotalsInput(exercisesRef.current, confirmedDataRef.current)),
         saveQueue: saveQueueRef.current,
         totalsQueue: totalsQueueRef.current,
       }
@@ -368,46 +400,35 @@ export default function SessionPage() {
     setGlobalSaveState('saved')
     setTimeout(() => setRowSaveState(view.key, setIdx, 'idle'), 1200)
     setTimeout(() => setGlobalSaveState(prev => (prev === 'saved' ? 'idle' : prev)), 1200)
-  }, [ensureSession, setRowSaveState])
+  }, [ensureSession, setRowSaveState, markSetConfirmed])
 
   const toggleDone = useCallback((view: ExerciseView, setIdx: number) => {
-    let updatedSnapshot: LocalSet | null = null
-    updateExData(prev => {
-      const rows = prev[view.key] || []
-      const current = rows[setIdx]
-      if (!current) return prev
-      updatedSnapshot = { ...current, done: !current.done }
-      const nextRows = rows.slice()
-      nextRows[setIdx] = updatedSnapshot
-      return { ...prev, [view.key]: nextRows }
-    })
+    // La snapshot est relue dans `next`, la valeur renvoyée de façon
+    // synchrone par updateExData — jamais d'une variable renseignée à
+    // l'intérieur de l'updater, qui ne serait fiable que si React exécutait ce
+    // callback de façon synchrone (ce qu'il ne garantit pas).
+    const next = updateExData(prev => applyToggleDone(prev, view.key, setIdx).next)
+    const snapshot = next[view.key]?.[setIdx] ?? null
+
     const timerKey = `${view.key}:${setIdx}`
     if (debounceTimersRef.current[timerKey]) {
       clearTimeout(debounceTimersRef.current[timerKey])
       delete debounceTimersRef.current[timerKey]
     }
-    if (updatedSnapshot) persistSet(view, setIdx, updatedSnapshot)
+    if (snapshot) persistSet(view, setIdx, snapshot)
   }, [persistSet, updateExData])
 
   const updateField = useCallback((view: ExerciseView, setIdx: number, field: 'primary' | 'secondary', value: string) => {
-    let updatedSnapshot: LocalSet | null = null
-    let wasDone = false
-    updateExData(prev => {
-      const rows = prev[view.key] || []
-      const current = rows[setIdx]
-      if (!current) return prev
-      wasDone = current.done
-      updatedSnapshot = { ...current, [field]: value }
-      const nextRows = rows.slice()
-      nextRows[setIdx] = updatedSnapshot
-      return { ...prev, [view.key]: nextRows }
-    })
+    const next = updateExData(prev => applyFieldUpdate(prev, view.key, setIdx, field, value).next)
+    const snapshot = next[view.key]?.[setIdx] ?? null
 
-    if (!wasDone || !updatedSnapshot) return
+    // applyFieldUpdate ne touche jamais `done` : snapshot.done reflète donc
+    // aussi bien l'état avant qu'après cette modification de champ.
+    if (!snapshot || !snapshot.done) return
 
     const timerKey = `${view.key}:${setIdx}`
     if (debounceTimersRef.current[timerKey]) clearTimeout(debounceTimersRef.current[timerKey])
-    const snapshotForSave = updatedSnapshot
+    const snapshotForSave = snapshot
     debounceTimersRef.current[timerKey] = setTimeout(() => {
       delete debounceTimersRef.current[timerKey]
       persistSet(view, setIdx, snapshotForSave)

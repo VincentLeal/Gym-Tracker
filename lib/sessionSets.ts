@@ -27,6 +27,8 @@ export interface LocalSet {
   saveState: SaveState
 }
 
+export type SetsState = Record<string, LocalSet[]>
+
 export function parseNumberOrNull(value: string): number | null {
   if (value.trim() === '') return null
   const n = Number(value)
@@ -109,6 +111,61 @@ export function hydrateNewSessionSets(
   return result
 }
 
+export interface SetsStateUpdate {
+  next: SetsState
+  /** Instantané de la série modifiée, ou null si la série visée n'existe pas
+   *  (rangée/set_index inconnu). Calculé de façon purement synchrone : aucune
+   *  dépendance au timing d'un setState React. */
+  snapshot: LocalSet | null
+}
+
+/**
+ * Bascule l'état "fait" d'une série. Pure et synchrone : l'appelant peut lire
+ * `snapshot` immédiatement après l'appel pour déclencher une sauvegarde avec
+ * exactement la valeur qui vient d'être écrite dans `next`, sans jamais
+ * dépendre du moment où React choisit d'exécuter un callback de setState.
+ */
+export function applyToggleDone(data: SetsState, key: string, setIdx: number): SetsStateUpdate {
+  const rows = data[key] || []
+  const current = rows[setIdx]
+  if (!current) return { next: data, snapshot: null }
+  const snapshot: LocalSet = { ...current, done: !current.done }
+  const nextRows = rows.slice()
+  nextRows[setIdx] = snapshot
+  return { next: { ...data, [key]: nextRows }, snapshot }
+}
+
+/** Même contrat que applyToggleDone, pour l'édition d'un champ texte/numérique. */
+export function applyFieldUpdate(
+  data: SetsState,
+  key: string,
+  setIdx: number,
+  field: 'primary' | 'secondary',
+  value: string
+): SetsStateUpdate {
+  const rows = data[key] || []
+  const current = rows[setIdx]
+  if (!current) return { next: data, snapshot: null }
+  const snapshot: LocalSet = { ...current, [field]: value }
+  const nextRows = rows.slice()
+  nextRows[setIdx] = snapshot
+  return { next: { ...data, [key]: nextRows }, snapshot }
+}
+
+/**
+ * Écrit un instantané dans l'état confirmé (séries dont la sauvegarde a
+ * réellement réussi en base), en étendant le tableau si besoin — même logique
+ * que mergeDefaultAndSavedSets, pour rester cohérent si des séries ont été
+ * ajoutées localement (addSet) au-delà de la longueur par défaut du programme.
+ */
+export function applyConfirmedSet(data: SetsState, key: string, setIdx: number, snapshot: LocalSet): SetsState {
+  const rows = data[key] || []
+  const nextRows = rows.slice()
+  while (nextRows.length <= setIdx) nextRows.push(emptyLocalSet())
+  nextRows[setIdx] = snapshot
+  return { ...data, [key]: nextRows }
+}
+
 /**
  * Sauvegarde fiable d'une série via upsert (au lieu d'un delete+insert).
  * - Nouvelles séries (exercise_id renseigné) : upsert ciblant la contrainte
@@ -188,8 +245,21 @@ export interface PersistSetDeps {
   getSessionId: () => string | null
   saveSetFn: (identity: SetIdentity, payload: SetPayload) => Promise<{ error: string | null }>
   updateTotalsFn: (sessionId: string, totals: SessionTotals) => Promise<{ error: string | null }>
-  /** Doit lire l'état le plus frais au moment de l'appel (pas une valeur capturée à l'avance). */
+  /**
+   * Doit lire l'état confirmé le plus frais au moment de l'appel (pas une
+   * valeur capturée à l'avance, et jamais l'état local optimiste) : voir
+   * onSaveSuccess.
+   */
   computeTotals: () => SessionTotals
+  /**
+   * Appelé de façon synchrone juste après la réussite de saveSetFn, avant que
+   * la tâche de calcul des totaux ne soit enfilée. Doit marquer cette série
+   * comme confirmée (état lu par computeTotals) — jamais appelé si la
+   * sauvegarde échoue, pour qu'une modification locale non sauvegardée ne
+   * puisse jamais fuiter dans les totaux envoyés après la réussite d'une
+   * autre série.
+   */
+  onSaveSuccess?: () => void
   saveQueue: ReturnType<typeof createSetSaveQueue>
   totalsQueue: ReturnType<typeof createSetSaveQueue>
 }
@@ -222,7 +292,13 @@ export async function persistSetAndSyncTotals(
   if (!sessionId) return { error: 'Aucune séance à mettre à jour.' }
 
   const resolvedSessionId = sessionId
-  const { error } = await deps.saveQueue(key, () => deps.saveSetFn({ ...identity, sessionId: resolvedSessionId }, payload))
+  const { error } = await deps.saveQueue(key, async () => {
+    const result = await deps.saveSetFn({ ...identity, sessionId: resolvedSessionId }, payload)
+    // Marque la série comme confirmée avant de rendre la main : computeTotals,
+    // appelé juste après (via totalsQueue), doit toujours voir cette réussite.
+    if (!result.error) deps.onSaveSuccess?.()
+    return result
+  })
   if (error) return { error }
 
   const totalsPromise = deps.totalsQueue(`totals:${resolvedSessionId}`, async () => {

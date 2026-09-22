@@ -111,8 +111,30 @@ end $$;
 -- une contrainte UNIQUE classique (NULL n'est jamais considéré égal à NULL) :
 -- les anciennes séries sans exercise_id restent donc pleinement compatibles,
 -- sans avoir besoin d'un index partiel.
+-- Une version antérieure de cette migration créait ce nom comme un INDEX
+-- PARTIEL (`create unique index ... where exercise_id is not null`), impropre
+-- comme cible onConflict (voir plus haut). Si une base a déjà exécuté cette
+-- ancienne version, l'index existe sous ce nom mais n'est adossé à aucune
+-- contrainte : `alter table ... add constraint` échouerait alors avec une
+-- collision de nom (index et contrainte partagent le même espace de noms par
+-- schéma). On le supprime explicitement dans ce cas précis — jamais si une
+-- contrainte de ce nom existe déjà, auquel cas il s'agit de l'index qui la
+-- soutient légitimement et il ne faut surtout pas le supprimer.
 do $$
 begin
+  if exists (
+    select 1
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where c.relname = 'session_sets_unique_by_exercise_id'
+      and c.relkind = 'i'
+      and n.nspname = 'public'
+  ) and not exists (
+    select 1 from pg_constraint where conname = 'session_sets_unique_by_exercise_id'
+  ) then
+    drop index if exists session_sets_unique_by_exercise_id;
+  end if;
+
   if not exists (
     select 1 from pg_constraint where conname = 'session_sets_unique_by_exercise_id'
   ) then

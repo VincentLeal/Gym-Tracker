@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest'
 import {
   emptyLocalSet, mergeDefaultAndSavedSets, hydrateNewSessionSets,
   persistSetAndSyncTotals, createSetSaveQueue, SetIdentity, SetPayload,
+  applyToggleDone, applyFieldUpdate, applyConfirmedSet, parseNumberOrNull, parseIntOrNull,
+  SetsState, LocalSet,
 } from '../sessionSets'
-import { SessionTotals } from '../sessionLogic'
+import { computeSessionTotals, SessionTotals } from '../sessionLogic'
 
 function deferred<T>() {
   let resolve!: (v: T) => void
@@ -177,5 +179,128 @@ describe('persistSetAndSyncTotals', () => {
     expect(result.error).toBe('network down')
     expect(result.totalsPromise).toBeUndefined()
     expect(totalsCalls).toEqual([])
+  })
+
+  it('e. totals only reflect confirmed (successfully saved) sets, never a local edit whose save failed', async () => {
+    // Reproduit exactement le scénario de l'audit : la série A est sauvegardée
+    // avec succès, la série B est modifiée localement mais sa sauvegarde
+    // échoue. computeTotals lit uniquement `confirmed` (jamais l'état local
+    // optimiste `optimistic`), et `confirmed` n'est mis à jour que par
+    // onSaveSuccess — jamais lorsque saveSetFn échoue.
+    const totalsCalls: SessionTotals[] = []
+    let confirmed: SetsState = { ex1: [emptyLocalSet(), emptyLocalSet()] }
+    const optimisticA: LocalSet = { done: true, primary: '80', secondary: '8', saveState: 'idle' }
+    const optimisticB: LocalSet = { done: true, primary: '90', secondary: '6', saveState: 'idle' }
+
+    const computeTotalsFromConfirmed = (): SessionTotals => computeSessionTotals([{
+      trackingMode: 'strength',
+      optional: false,
+      sets: confirmed.ex1.map(s => ({ done: s.done, weightKg: parseNumberOrNull(s.primary), reps: parseIntOrNull(s.secondary) })),
+    }])
+
+    const depsFor = (setIdx: number, snapshot: LocalSet, shouldFail: boolean) => ({
+      ensureSessionId: async () => 'session-1',
+      getSessionId: () => 'session-1',
+      saveSetFn: async () => (shouldFail ? { error: 'network down' } : { error: null }),
+      updateTotalsFn: async (_id: string, totals: SessionTotals) => { totalsCalls.push(totals); return { error: null } },
+      computeTotals: computeTotalsFromConfirmed,
+      onSaveSuccess: () => { confirmed = applyConfirmedSet(confirmed, 'ex1', setIdx, snapshot) },
+      saveQueue: createSetSaveQueue(),
+      totalsQueue: createSetSaveQueue(),
+    })
+
+    // Série A : sauvegarde réussie.
+    const resultA = await persistSetAndSyncTotals('ex1:0', identity(0), payload, depsFor(0, optimisticA, false))
+    expect(resultA.error).toBeNull()
+    await resultA.totalsPromise
+
+    // Série B : modifiée localement mais la sauvegarde échoue.
+    const resultB = await persistSetAndSyncTotals('ex1:1', identity(1), payload, depsFor(1, optimisticB, true))
+    expect(resultB.error).toBe('network down')
+    expect(resultB.totalsPromise).toBeUndefined()
+
+    // Un seul push de totaux (celui de A) ; B n'a jamais atteint computeTotals.
+    expect(totalsCalls).toHaveLength(1)
+    expect(totalsCalls[0]).toEqual({ setsTotal: 2, setsDone: 1, totalVolume: 640 })
+    // B n'a jamais été marquée confirmée malgré la modification locale.
+    expect(confirmed.ex1[1]).toEqual(emptyLocalSet())
+  })
+})
+
+describe('applyToggleDone / applyFieldUpdate', () => {
+  it('applyToggleDone flips done and returns the exact snapshot written into `next`', () => {
+    const data: SetsState = { ex1: [{ done: false, primary: '80', secondary: '8', saveState: 'idle' }] }
+    const { next, snapshot } = applyToggleDone(data, 'ex1', 0)
+    expect(snapshot).toEqual({ done: true, primary: '80', secondary: '8', saveState: 'idle' })
+    expect(next.ex1[0]).toBe(snapshot)
+    expect(data.ex1[0].done).toBe(false) // l'état d'origine n'est jamais muté
+  })
+
+  it('applyFieldUpdate updates only the targeted field and returns the exact snapshot written into `next`', () => {
+    const data: SetsState = { ex1: [{ done: true, primary: '80', secondary: '8', saveState: 'idle' }] }
+    const { next, snapshot } = applyFieldUpdate(data, 'ex1', 0, 'secondary', '10')
+    expect(snapshot).toEqual({ done: true, primary: '80', secondary: '10', saveState: 'idle' })
+    expect(next.ex1[0]).toBe(snapshot)
+  })
+
+  it('returns snapshot: null and the same state when the targeted set does not exist', () => {
+    const data: SetsState = { ex1: [] }
+    expect(applyToggleDone(data, 'ex1', 0)).toEqual({ next: data, snapshot: null })
+    expect(applyFieldUpdate(data, 'ex1', 0, 'primary', '10')).toEqual({ next: data, snapshot: null })
+  })
+
+  it('a modification triggers persistSet immediately with the correct snapshot, with no dependency on React setState timing', () => {
+    // Reproduit la logique de app/session/[type]/page.tsx : exDataRef.current
+    // est la source synchrone, updateExData l'applique et le renvoie tout de
+    // suite, et l'appelant (l'équivalent de toggleDone) lit ce retour — jamais
+    // une variable renseignée par un callback de setState React, dont
+    // l'exécution synchrone n'est pas garantie.
+    const exDataRef = { current: { ex1: [{ done: false, primary: '80', secondary: '8', saveState: 'idle' as const }] } }
+    const persisted: { key: string; setIdx: number; snapshot: LocalSet }[] = []
+
+    function updateExData(updater: (prev: SetsState) => SetsState): SetsState {
+      const next = updater(exDataRef.current)
+      exDataRef.current = next
+      return next
+    }
+
+    function persistSet(key: string, setIdx: number, snapshot: LocalSet) {
+      persisted.push({ key, setIdx, snapshot })
+    }
+
+    function toggleDone(key: string, setIdx: number) {
+      const next = updateExData(prev => applyToggleDone(prev, key, setIdx).next)
+      const snapshot = next[key]?.[setIdx] ?? null
+      if (snapshot) persistSet(key, setIdx, snapshot)
+    }
+
+    toggleDone('ex1', 0)
+
+    // Synchrone : persistSet a déjà été appelé, avant même de sortir de
+    // toggleDone, avec exactement le nouvel état écrit dans exDataRef.
+    expect(persisted).toHaveLength(1)
+    expect(persisted[0]).toEqual({ key: 'ex1', setIdx: 0, snapshot: { done: true, primary: '80', secondary: '8', saveState: 'idle' } })
+    expect(exDataRef.current.ex1[0].done).toBe(true)
+  })
+})
+
+describe('applyConfirmedSet', () => {
+  it('writes the snapshot at the given index without touching other sets', () => {
+    const data: SetsState = { ex1: [emptyLocalSet(), emptyLocalSet()] }
+    const snapshot: LocalSet = { done: true, primary: '100', secondary: '5', saveState: 'idle' }
+    const next = applyConfirmedSet(data, 'ex1', 0, snapshot)
+    expect(next.ex1[0]).toBe(snapshot)
+    expect(next.ex1[1]).toEqual(emptyLocalSet())
+    expect(data.ex1[0]).toEqual(emptyLocalSet()) // pas de mutation de l'original
+  })
+
+  it('extends the array with empty sets when confirming an index beyond its current length', () => {
+    const data: SetsState = { ex1: [] }
+    const snapshot: LocalSet = { done: true, primary: '50', secondary: '10', saveState: 'idle' }
+    const next = applyConfirmedSet(data, 'ex1', 2, snapshot)
+    expect(next.ex1).toHaveLength(3)
+    expect(next.ex1[0]).toEqual(emptyLocalSet())
+    expect(next.ex1[1]).toEqual(emptyLocalSet())
+    expect(next.ex1[2]).toBe(snapshot)
   })
 })
