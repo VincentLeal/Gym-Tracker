@@ -3,17 +3,17 @@ import { useState } from 'react'
 
 interface Props {
   name: string
-  gifFile: string
-  youtube: string
-  tip: string
+  gifFile?: string
+  youtube?: string
+  tip?: string
 }
 
 export default function ExerciseDemo({ name, gifFile, youtube, tip }: Props) {
   const [open, setOpen] = useState(false)
   const [gifError, setGifError] = useState(false)
 
-  const gifUrl = `/gifs/${gifFile}`
-  const ytId = youtube.match(/(?:v=|youtu\.be\/)([^&?/]+)/)?.[1]
+  const gifUrl = gifFile ? `/gifs/${gifFile}` : null
+  const ytId = youtube?.match(/(?:v=|youtu\.be\/)([^&?/]+)/)?.[1]
 
   return (
     <>
@@ -51,7 +51,7 @@ export default function ExerciseDemo({ name, gifFile, youtube, tip }: Props) {
             </div>
 
             <div className="bg-gray-50 aspect-video w-full overflow-hidden">
-              {!gifError ? (
+              {gifUrl && !gifError ? (
                 <img
                   src={gifUrl}
                   alt={`Démonstration ${name}`}
@@ -71,26 +71,30 @@ export default function ExerciseDemo({ name, gifFile, youtube, tip }: Props) {
               )}
             </div>
 
-            <div className="px-5 py-4">
-              <div className="flex gap-3 items-start bg-teal-50 rounded-xl p-3">
-                <span className="text-lg flex-shrink-0">💡</span>
-                <p className="text-sm text-teal-800 leading-relaxed">{tip}</p>
+            {tip && (
+              <div className="px-5 py-4">
+                <div className="flex gap-3 items-start bg-teal-50 rounded-xl p-3">
+                  <span className="text-lg flex-shrink-0">💡</span>
+                  <p className="text-sm text-teal-800 leading-relaxed">{tip}</p>
+                </div>
               </div>
-            </div>
+            )}
 
-            <div className="px-5 pb-5">
-              <a
-                href={youtube}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
-              >
-                <svg className="w-4 h-4 text-red-500" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-                </svg>
-                Voir sur YouTube
-              </a>
-            </div>
+            {youtube && (
+              <div className="px-5 pb-5">
+                <a
+                  href={youtube}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+                >
+                  <svg className="w-4 h-4 text-red-500" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                  </svg>
+                  Voir sur YouTube
+                </a>
+              </div>
+            )}
           </div>
         </div>
       )}
