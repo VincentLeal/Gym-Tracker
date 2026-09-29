@@ -131,15 +131,26 @@ export const PROGRAMS: Record<NewSessionType, Exercise[]> = {
         axelle: { defaultSets: 2, repsMin: 10, repsMax: 15, rirMin: 3, rirMax: 3, restMinSeconds: 90 },
       },
     },
+    // Tirage vertical : Axelle uniquement (retiré du programme A de Vincent).
     {
       exerciseId: 'lat_pulldown',
       name: 'Tirage vertical',
       trackingMode: 'strength',
-      participants: ['vincent', 'axelle'],
+      participants: ['axelle'],
       prescriptions: {
-        vincent: { defaultSets: 3, repsMin: 8, repsMax: 12, rirMin: 2, rirMax: 3, restMinSeconds: 90 },
         axelle: { defaultSets: 2, repsMin: 10, repsMax: 15, rirMin: 3, rirMax: 3, restMinSeconds: 90 },
       },
+    },
+    // Tractions assistées : 3e exercice de Vincent, après presse et développé.
+    {
+      exerciseId: 'assisted_pull_up',
+      name: 'Tractions assistées',
+      trackingMode: 'assisted',
+      participants: ['vincent'],
+      prescriptions: {
+        vincent: { defaultSets: 3, repsMin: 6, repsMax: 10, rirMin: 2, rirMax: 3, restMinSeconds: 90, restMaxSeconds: 120, note: 'La charge saisie correspond au niveau d’assistance (kg), pas à une charge soulevée.' },
+      },
+      demo: { gifFile: 'pull-up.gif', youtube: 'https://www.youtube.com/watch?v=eGo4IYlbE5g', tip: 'Tire les coudes vers les hanches, pas les épaules vers les oreilles.' },
     },
     {
       exerciseId: 'leg_curl',
@@ -153,23 +164,13 @@ export const PROGRAMS: Record<NewSessionType, Exercise[]> = {
       demo: { gifFile: 'leg-curl.gif', youtube: 'https://www.youtube.com/watch?v=1Tq3QdYUuHs', tip: 'Hanches plaquées sur la machine, remonte les talons vers les fesses, descente lente.' },
     },
     {
-      exerciseId: 'assisted_pull_up',
-      name: 'Tractions assistées',
-      trackingMode: 'assisted',
-      participants: ['vincent'],
-      prescriptions: {
-        vincent: { defaultSets: 3, repsMin: 6, repsMax: 10, rirMin: 2, rirMax: 3, restMinSeconds: 90, restMaxSeconds: 120, note: 'La charge saisie correspond au niveau d’assistance (kg), pas à une charge soulevée.' },
-      },
-      demo: { gifFile: 'pull-up.gif', youtube: 'https://www.youtube.com/watch?v=eGo4IYlbE5g', tip: 'Tire les coudes vers les hanches, pas les épaules vers les oreilles.' },
-    },
-    {
       exerciseId: 'biceps_curl',
       name: 'Curl biceps à la poulie ou aux haltères',
       trackingMode: 'strength',
       participants: ['vincent', 'axelle'],
       prescriptions: {
         vincent: { defaultSets: 2, repsMin: 10, repsMax: 15, rirMin: 2, rirMax: 3, restMinSeconds: 60, restMaxSeconds: 90 },
-        axelle: { defaultSets: 1, repsMin: 10, repsMax: 15, restMinSeconds: 60, restMaxSeconds: 90, optional: true, note: '1 à 2 séries facultatives — ajoute une série si tu le souhaites.' },
+        axelle: { defaultSets: 2, repsMin: 10, repsMax: 15, restMinSeconds: 60, restMaxSeconds: 90, optional: true, note: '2 séries prévues — ajustables si la séance est trop longue.' },
       },
       demo: { gifFile: 'bicep-curl.gif', youtube: 'https://www.youtube.com/watch?v=ykJmrZ5v0Oo', tip: 'Coudes fixes, supine la main en montant, descente lente et contrôlée.' },
     },
@@ -208,6 +209,17 @@ export const PROGRAMS: Record<NewSessionType, Exercise[]> = {
       },
       demo: { gifFile: 'seated-cable-row.gif', youtube: 'https://www.youtube.com/watch?v=GZbfZ033f74', tip: 'Reste droit, ramène les coudes derrière le dos, ne te penche pas en arrière.' },
     },
+    // Pompes : Vincent uniquement, avant le développé incliné.
+    {
+      exerciseId: 'push_up',
+      name: 'Pompes',
+      trackingMode: 'bodyweight',
+      participants: ['vincent'],
+      prescriptions: {
+        vincent: { defaultSets: 3, repsMin: 4, repsMax: 5, restMinSeconds: 90, note: 'Objectif initial : 4 à 5 répétitions propres.' },
+      },
+      demo: { gifFile: 'knee-push-up.gif', tip: 'Corps aligné de la tête aux talons (ou aux genoux), descends jusqu’à effleurer le sol.' },
+    },
     {
       exerciseId: 'incline_db_press',
       name: 'Développé incliné haltères',
@@ -230,23 +242,13 @@ export const PROGRAMS: Record<NewSessionType, Exercise[]> = {
       },
     },
     {
-      exerciseId: 'push_up',
-      name: 'Pompes',
-      trackingMode: 'bodyweight',
-      participants: ['vincent'],
-      prescriptions: {
-        vincent: { defaultSets: 3, repsMin: 4, repsMax: 5, restMinSeconds: 90, note: 'Objectif initial : 4 à 5 répétitions propres.' },
-      },
-      demo: { gifFile: 'knee-push-up.gif', tip: 'Corps aligné de la tête aux talons (ou aux genoux), descends jusqu’à effleurer le sol.' },
-    },
-    {
       exerciseId: 'triceps_pushdown',
       name: 'Extension triceps à la poulie',
       trackingMode: 'strength',
       participants: ['vincent', 'axelle'],
       prescriptions: {
         vincent: { defaultSets: 2, repsMin: 10, repsMax: 15, rirMin: 2, rirMax: 3, restMinSeconds: 60, restMaxSeconds: 90 },
-        axelle: { defaultSets: 1, repsMin: 10, repsMax: 15, restMinSeconds: 60, restMaxSeconds: 90, optional: true, note: '1 à 2 séries facultatives — ajoute une série si tu le souhaites.' },
+        axelle: { defaultSets: 2, repsMin: 10, repsMax: 15, restMinSeconds: 60, restMaxSeconds: 90, optional: true, note: '2 séries prévues — ajustables si la séance est trop longue.' },
       },
       demo: { gifFile: 'triceps-pushdown.gif', youtube: 'https://www.youtube.com/watch?v=2-LAMcpzODU', tip: 'Coudes fixes le long du corps, pousse jusqu’à l’extension complète.' },
     },
@@ -357,6 +359,21 @@ export function isSessionAllowedForRole(session: NewSessionType, role: ProgramRo
 
 export function getExercisesForRole(session: NewSessionType, role: ProgramRole): Exercise[] {
   return PROGRAMS[session].filter(ex => ex.participants.includes(role) && ex.prescriptions[role])
+}
+
+/**
+ * Définition d'un exercice par son identifiant, en cherchant d'abord dans la
+ * séance donnée puis dans tout le programme. Sert à afficher les séries passées
+ * d'un exercice qui ne figure plus dans le programme du participant.
+ */
+export function findExerciseDefinition(exerciseId: string, session?: NewSessionType): Exercise | undefined {
+  const inSession = session ? PROGRAMS[session].find(ex => ex.exerciseId === exerciseId) : undefined
+  if (inSession) return inSession
+  for (const type of NEW_SESSION_TYPES) {
+    const found = PROGRAMS[type].find(ex => ex.exerciseId === exerciseId)
+    if (found) return found
+  }
+  return undefined
 }
 
 export const SESSION_LABELS: Record<NewSessionType, string> = {

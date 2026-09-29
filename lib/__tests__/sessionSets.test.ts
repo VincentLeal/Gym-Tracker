@@ -3,7 +3,7 @@ import {
   emptyLocalSet, mergeDefaultAndSavedSets, hydrateNewSessionSets,
   persistSetAndSyncTotals, createSetSaveQueue, SetIdentity, SetPayload,
   applyToggleDone, applyFieldUpdate, applyConfirmedSet, parseNumberOrNull, parseIntOrNull,
-  SetsState, LocalSet,
+  SetsState, LocalSet, resolveExerciseIndexes, rirPayloadField, rowToLocalSet,
 } from '../sessionSets'
 import { computeSessionTotals, SessionTotals } from '../sessionLogic'
 
@@ -42,6 +42,47 @@ describe('mergeDefaultAndSavedSets', () => {
     )
     expect(merged).toHaveLength(3)
     expect(merged[2].done).toBe(true)
+  })
+})
+
+describe('resolveExerciseIndexes', () => {
+  it('uses display positions for a brand new session', () => {
+    expect(resolveExerciseIndexes([{ exerciseId: 'a', displayIndex: 0 }, { exerciseId: 'b', displayIndex: 1 }], []))
+      .toEqual({ a: 0, b: 1 })
+  })
+
+  it('keeps the original indexes of a past session after the program order changed', () => {
+    // Ancien ordre Vincent A : lat_pulldown en 2, assisted_pull_up en 4.
+    const saved = [
+      { exercise_id: 'lat_pulldown', exercise_index: 2 },
+      { exercise_id: 'assisted_pull_up', exercise_index: 4 },
+      { exercise_id: 'leg_curl', exercise_index: 3 },
+    ]
+    const specs = ['leg_press', 'chest_press_machine', 'assisted_pull_up', 'leg_curl', 'biceps_curl', 'cardio_a', 'lat_pulldown']
+      .map((exerciseId, displayIndex) => ({ exerciseId, displayIndex }))
+    const result = resolveExerciseIndexes(specs, saved)
+    expect(result.assisted_pull_up).toBe(4)
+    expect(result.leg_curl).toBe(3)
+    expect(result.lat_pulldown).toBe(2)
+    expect(result.leg_press).toBe(0)
+    // biceps_curl (position 4) est occupée par assisted_pull_up : index libre attribué.
+    expect(result.biceps_curl).not.toBe(4)
+    expect(new Set(Object.values(result)).size).toBe(specs.length)
+  })
+})
+
+describe('RIR per set', () => {
+  it('only sends the rir column when a value exists or had been stored', () => {
+    expect(rirPayloadField('2', false)).toBe(2)
+    expect(rirPayloadField('', false)).toBeUndefined()
+    expect(rirPayloadField(undefined, false)).toBeUndefined()
+    expect(rirPayloadField('', true)).toBeNull()
+  })
+
+  it('hydrates rir from a saved row, and leaves it absent otherwise', () => {
+    expect(rowToLocalSet('strength', { completed: true, weight_kg: 60, reps: 8, rir: 2 }).rir).toBe('2')
+    expect(rowToLocalSet('strength', { completed: true, weight_kg: 60, reps: 8 })).toEqual({ done: true, primary: '60', secondary: '8', saveState: 'idle' })
+    expect(rowToLocalSet('cardio', { completed: true, duration_minutes: 20, rir: 2 }).rir).toBeUndefined()
   })
 })
 

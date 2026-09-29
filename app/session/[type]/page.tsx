@@ -3,14 +3,14 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import {
-  PROGRAMS, resolveProgramRole, isSessionAllowedForRole, getExercisesForRole,
+  PROGRAMS, resolveProgramRole, isSessionAllowedForRole, getExercisesForRole, findExerciseDefinition,
   getSessionLabel, getSessionColors, describePrescription,
   ProgramRole, TrackingMode, AnySessionType,
 } from '@/lib/program'
 import { validateSessionRouteParam, SessionRouteValidation, computeSessionTotals, ExerciseSetsInput, isSessionCompleted } from '@/lib/sessionLogic'
 import {
   createSetSaveQueue, saveSet, updateSessionTotals, parseNumberOrNull, parseIntOrNull,
-  rowToLocalSet, hydrateNewSessionSets, persistSetAndSyncTotals,
+  rowToLocalSet, hydrateNewSessionSets, persistSetAndSyncTotals, resolveExerciseIndexes, rirPayloadField,
   applyToggleDone, applyFieldUpdate, applyConfirmedSet,
   SaveState, LocalSet, SetsState, ExerciseHydrationSpec,
 } from '@/lib/sessionSets'
@@ -76,8 +76,9 @@ function buildTotalsInput(exercises: ExerciseView[], data: SetsState): ExerciseS
 
 function formatHistoryRow(mode: TrackingMode, row: any): { primary: string; secondary: string } {
   if (mode === 'cardio') return { primary: row.resistance_note || '—', secondary: row.duration_minutes != null ? `${row.duration_minutes} min` : '—' }
-  if (mode === 'bodyweight') return { primary: '—', secondary: row.reps != null ? String(row.reps) : '—' }
-  return { primary: row.weight_kg != null ? `${row.weight_kg} kg` : '—', secondary: row.reps != null ? String(row.reps) : '—' }
+  const reps = (row.reps != null ? String(row.reps) : '—') + (row.rir != null ? ` · RIR ${row.rir}` : '')
+  if (mode === 'bodyweight') return { primary: '—', secondary: reps }
+  return { primary: row.weight_kg != null ? `${row.weight_kg} kg` : '—', secondary: reps }
 }
 
 export default function SessionPage() {
@@ -114,6 +115,9 @@ export default function SessionPage() {
   const totalsQueueRef = useRef(createSetSaveQueue())
   const debounceTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const noteEffectMountedRef = useRef(false)
+  // Séries pour lesquelles un RIR a déjà été envoyé depuis cette page : un RIR
+  // vidé ensuite doit alors être effacé en base (voir rirPayloadField).
+  const rirSentRef = useRef<Set<string>>(new Set())
 
   useEffect(() => { exercisesRef.current = exercises }, [exercises])
   useEffect(() => { dateRef.current = date }, [date])
@@ -198,6 +202,7 @@ export default function SessionPage() {
           const prescription = PROGRAMS[validation.type].find(e => e.exerciseId === ex.exerciseId)?.prescriptions[role]
           return { key: ex.key, exerciseId: ex.exerciseId, defaultSets: prescription?.defaultSets ?? 1, trackingMode: ex.trackingMode }
         })
+        let sessionExercises = baseExercises
 
         // Toujours partir des séries prévues par le programme, puis fusionner les
         // lignes déjà sauvegardées par-dessus (par exercise_id + set_index) : une
@@ -218,10 +223,48 @@ export default function SessionPage() {
           setDate(existingSession.session_date)
           setNote(existingSession.note || '')
 
-          initData = hydrateNewSessionSets(hydrationSpecs, existingSets || [])
+          // Séance déjà réalisée : les exercices sauvegardés qui ne figurent plus
+          // dans le programme actuel du participant restent affichés et comptés,
+          // pour que la modification du programme ne réécrive jamais ses
+          // performances ni ses totaux.
+          const savedRows = existingSets || []
+          const extraExercises: ExerciseView[] = []
+          for (const row of savedRows) {
+            const id: string | null = row.exercise_id
+            if (!id || sessionExercises.some(ex => ex.exerciseId === id) || extraExercises.some(ex => ex.exerciseId === id)) continue
+            const def = findExerciseDefinition(id, validation.type)
+            const trackingMode: TrackingMode = def?.trackingMode ?? 'strength'
+            extraExercises.push({
+              key: id,
+              exerciseIndex: row.exercise_index,
+              exerciseId: id,
+              name: row.exercise_name || def?.name || id,
+              trackingMode,
+              optional: false,
+              metaLine: '',
+              badge: 'Hors programme actuel',
+              demo: def?.demo,
+            })
+            hydrationSpecs.push({ key: id, exerciseId: id, defaultSets: 0, trackingMode })
+          }
+
+          // Conserve les exercise_index d'origine des séries déjà sauvegardées
+          // (l'ordre du programme a pu changer depuis) : la contrainte unique
+          // (session_id, exercise_index, set_index) existe toujours.
+          const allExercises = [...sessionExercises, ...extraExercises]
+          const indexes = resolveExerciseIndexes(
+            allExercises.map((ex, idx) => ({ exerciseId: ex.exerciseId!, displayIndex: idx })),
+            savedRows
+          )
+          sessionExercises = allExercises.map(ex => ({ ...ex, exerciseIndex: indexes[ex.exerciseId!] }))
+
+          initData = hydrateNewSessionSets(hydrationSpecs, savedRows)
+          for (const [key, rows] of Object.entries(initData)) {
+            rows.forEach((r, i) => { if ((r.rir ?? '') !== '') rirSentRef.current.add(`${key}:${i}`) })
+          }
         }
 
-        setExercises(baseExercises)
+        setExercises(sessionExercises)
         updateExData(() => initData)
         // L'état confirmé démarre identique à l'état hydraté : c'est exactement
         // ce que la base contient déjà (séries sauvegardées + séries par défaut
@@ -363,7 +406,10 @@ export default function SessionPage() {
     setRowSaveState(view.key, setIdx, 'saving')
     setGlobalSaveState('saving')
 
-    const payload = buildPayload(view.trackingMode, snapshot)
+    const rirKey = `${view.key}:${setIdx}`
+    const rir = view.trackingMode === 'cardio' ? undefined : rirPayloadField(snapshot.rir, rirSentRef.current.has(rirKey))
+    if (rir != null) rirSentRef.current.add(rirKey)
+    const payload = { ...buildPayload(view.trackingMode, snapshot), rir }
     const identity = { exerciseIndex: view.exerciseIndex, exerciseName: view.name, exerciseId: view.exerciseId, setIndex: setIdx }
 
     const { error } = await persistSetAndSyncTotals(
@@ -418,7 +464,7 @@ export default function SessionPage() {
     if (snapshot) persistSet(view, setIdx, snapshot)
   }, [persistSet, updateExData])
 
-  const updateField = useCallback((view: ExerciseView, setIdx: number, field: 'primary' | 'secondary', value: string) => {
+  const updateField = useCallback((view: ExerciseView, setIdx: number, field: 'primary' | 'secondary' | 'rir', value: string) => {
     const next = updateExData(prev => applyFieldUpdate(prev, view.key, setIdx, field, value).next)
     const snapshot = next[view.key]?.[setIdx] ?? null
 
@@ -479,7 +525,8 @@ export default function SessionPage() {
     if (view.exerciseId) {
       const { data, error } = await supabase
         .from('session_sets')
-        .select('weight_kg, reps, duration_minutes, resistance_note, set_index, session_id, sessions!inner(session_date, user_id)')
+        // `*` : inclut rir quand la colonne existe, sans échouer avant sa création.
+        .select('*, sessions!inner(session_date, user_id)')
         .eq('exercise_id', view.exerciseId)
         .eq('completed', true)
         .eq('sessions.user_id', userId)
@@ -610,6 +657,7 @@ export default function SessionPage() {
               sets={sets}
               onChangePrimary={(setIdx, v) => updateField(ex, setIdx, 'primary', v)}
               onChangeSecondary={(setIdx, v) => updateField(ex, setIdx, 'secondary', v)}
+              onChangeRir={ex.exerciseId && ex.trackingMode !== 'cardio' ? (setIdx, v) => updateField(ex, setIdx, 'rir', v) : undefined}
               onToggleDone={setIdx => toggleDone(ex, setIdx)}
               onCopyToNext={setIdx => copyToNext(ex, setIdx)}
               onAddSet={() => addSet(ex)}

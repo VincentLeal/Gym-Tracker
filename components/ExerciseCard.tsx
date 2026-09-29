@@ -1,13 +1,14 @@
 'use client'
 import { useState } from 'react'
 import ExerciseDemo from './ExerciseDemo'
-import SetRow, { SetFieldConfig } from './SetRow'
+import SetRow, { SetFieldConfig, fieldColSpanClasses } from './SetRow'
 import { SaveState } from '@/lib/sessionSets'
 
 export interface ExerciseCardSet {
   done: boolean
   primary: string
   secondary: string
+  rir?: string
   saveState: SaveState
 }
 
@@ -22,6 +23,8 @@ interface Props {
   sets: ExerciseCardSet[]
   onChangePrimary: (setIdx: number, value: string) => void
   onChangeSecondary: (setIdx: number, value: string) => void
+  /** Si fourni, affiche une colonne RIR (facultative) pour chaque série. */
+  onChangeRir?: (setIdx: number, value: string) => void
   onToggleDone: (setIdx: number) => void
   onCopyToNext: (setIdx: number) => void
   onAddSet: () => void
@@ -31,10 +34,14 @@ interface Props {
 
 export default function ExerciseCard({
   name, metaLine, note, badge, fieldLabels, fieldTypes, demo, sets,
-  onChangePrimary, onChangeSecondary, onToggleDone, onCopyToNext, onAddSet, onRetry, onOpenHistory,
+  onChangePrimary, onChangeSecondary, onChangeRir, onToggleDone, onCopyToNext, onAddSet, onRetry, onOpenHistory,
 }: Props) {
   const [showRirHelp, setShowRirHelp] = useState(false)
   const hasRir = metaLine?.includes('RIR')
+  const headerLabels = fieldLabels
+    ? [fieldLabels.primary, fieldLabels.secondary, onChangeRir ? 'RIR' : ''].filter(Boolean)
+    : []
+  const headerSpans = fieldColSpanClasses(headerLabels.length)
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
@@ -81,8 +88,7 @@ export default function ExerciseCard({
         <div className="px-4 pb-1">
           <div className="grid grid-cols-12 text-xs text-gray-400 font-medium mb-1.5 px-1">
             <div className="col-span-2">#</div>
-            {fieldLabels.primary && <div className="col-span-4">{fieldLabels.primary}</div>}
-            <div className={fieldLabels.primary ? 'col-span-4' : 'col-span-8'}>{fieldLabels.secondary}</div>
+            {headerLabels.map((label, i) => <div key={i} className={headerSpans[i]}>{label}</div>)}
             <div className="col-span-2 text-right">✓</div>
           </div>
           <div className="space-y-1.5">
@@ -93,6 +99,9 @@ export default function ExerciseCard({
               const fieldB: SetFieldConfig = {
                 label: fieldLabels.secondary, value: s.secondary, onChange: v => onChangeSecondary(setIdx, v), type: fieldTypes?.secondary ?? 'number',
               }
+              const fieldC: SetFieldConfig | null = onChangeRir
+                ? { label: 'RIR', value: s.rir ?? '', onChange: v => onChangeRir(setIdx, v), type: 'number' }
+                : null
               const showCopy = s.done && setIdx + 1 < sets.length && !sets[setIdx + 1].done
               return (
                 <SetRow
@@ -101,6 +110,7 @@ export default function ExerciseCard({
                   done={s.done}
                   fieldA={fieldA}
                   fieldB={fieldB}
+                  fieldC={fieldC}
                   onToggleDone={() => onToggleDone(setIdx)}
                   showCopyButton={showCopy}
                   onCopy={() => onCopyToNext(setIdx)}

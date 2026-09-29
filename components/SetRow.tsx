@@ -9,11 +9,20 @@ export interface SetFieldConfig {
   placeholder?: string
 }
 
+/** Largeurs (sur 12 colonnes, dont 8 pour les champs) selon le nombre de champs saisis. */
+export function fieldColSpanClasses(count: number): string[] {
+  if (count <= 1) return ['col-span-8']
+  if (count === 2) return ['col-span-4', 'col-span-4']
+  return ['col-span-3', 'col-span-3', 'col-span-2']
+}
+
 interface Props {
   index: number
   done: boolean
   fieldA: SetFieldConfig | null
   fieldB: SetFieldConfig | null
+  /** Champ facultatif supplémentaire (RIR ressenti). */
+  fieldC?: SetFieldConfig | null
   onToggleDone: () => void
   showCopyButton: boolean
   onCopy?: () => void
@@ -21,16 +30,16 @@ interface Props {
   onRetry: () => void
 }
 
-export default function SetRow({ index, done, fieldA, fieldB, onToggleDone, showCopyButton, onCopy, saveState, onRetry }: Props) {
-  const fields = [fieldA, fieldB].filter(Boolean) as SetFieldConfig[]
-  const fieldColSpanClass = fields.length === 1 ? 'col-span-8' : 'col-span-4'
+export default function SetRow({ index, done, fieldA, fieldB, fieldC, onToggleDone, showCopyButton, onCopy, saveState, onRetry }: Props) {
+  const fields = [fieldA, fieldB, fieldC].filter(Boolean) as SetFieldConfig[]
+  const spans = fieldColSpanClasses(fields.length)
 
   return (
     <div className="rounded-xl px-1 py-1.5 transition-colors">
       <div className={`grid grid-cols-12 items-center gap-1 rounded-xl px-1 py-1.5 transition-colors ${done ? 'bg-teal-50' : 'bg-gray-50'}`}>
         <div className="col-span-2 text-xs text-gray-400 pl-1">{index + 1}</div>
         {fields.map((field, i) => (
-          <div key={i} className={fieldColSpanClass}>
+          <div key={i} className={spans[i]}>
             <input
               type={field.type}
               inputMode={field.type === 'number' ? 'decimal' : undefined}

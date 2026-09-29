@@ -17,6 +17,8 @@ export interface SetPayload {
   reps: number | null
   durationMinutes: number | null
   resistanceNote: string | null
+  /** RIR ressenti. undefined = colonne non envoyée (voir rirPayloadField). */
+  rir?: number | null
   completed: boolean
 }
 
@@ -24,6 +26,8 @@ export interface LocalSet {
   done: boolean
   primary: string
   secondary: string
+  /** RIR ressenti, saisi librement ; absent tant qu'il n'a jamais été renseigné. */
+  rir?: string
   saveState: SaveState
 }
 
@@ -50,10 +54,60 @@ export function rowToLocalSet(mode: TrackingMode, row: any): LocalSet {
   if (mode === 'cardio') {
     return { done: !!row.completed, primary: row.resistance_note ?? '', secondary: row.duration_minutes != null ? String(row.duration_minutes) : '', saveState: 'idle' }
   }
+  const rir = row.rir != null ? { rir: String(row.rir) } : {}
   if (mode === 'bodyweight') {
-    return { done: !!row.completed, primary: '', secondary: row.reps != null ? String(row.reps) : '', saveState: 'idle' }
+    return { done: !!row.completed, primary: '', secondary: row.reps != null ? String(row.reps) : '', ...rir, saveState: 'idle' }
   }
-  return { done: !!row.completed, primary: row.weight_kg != null ? String(row.weight_kg) : '', secondary: row.reps != null ? String(row.reps) : '', saveState: 'idle' }
+  return { done: !!row.completed, primary: row.weight_kg != null ? String(row.weight_kg) : '', secondary: row.reps != null ? String(row.reps) : '', ...rir, saveState: 'idle' }
+}
+
+/**
+ * Valeur de la colonne rir à envoyer pour une série.
+ * - RIR saisi -> sa valeur.
+ * - RIR vidé alors qu'une valeur avait déjà été sauvegardée -> null (effacement).
+ * - Jamais renseigné -> undefined : la colonne n'est pas envoyée du tout, pour que
+ *   l'enregistrement des séries continue de fonctionner même si la colonne
+ *   session_sets.rir n'a pas encore été ajoutée en base.
+ */
+export function rirPayloadField(current: string | undefined, previouslyStored: boolean): number | null | undefined {
+  const value = parseIntOrNull(current ?? '')
+  if (value != null) return value
+  return previouslyStored ? null : undefined
+}
+
+/**
+ * exercise_index à utiliser pour chaque exercise_id d'une séance A/B/C.
+ * La contrainte historique (session_id, exercise_index, set_index) existe
+ * toujours : si l'ordre du programme change, une séance déjà enregistrée
+ * doit garder les index sous lesquels ses séries ont été sauvegardées, sinon
+ * l'upsert entrerait en collision avec la série d'un autre exercice.
+ * - Exercice déjà sauvegardé dans la séance -> son index d'origine.
+ * - Sinon -> sa position d'affichage si elle est libre, ou un index libre après
+ *   tous ceux déjà utilisés.
+ */
+export function resolveExerciseIndexes(
+  specs: { exerciseId: string; displayIndex: number }[],
+  savedRows: { exercise_id: string | null; exercise_index: number }[]
+): Record<string, number> {
+  const result: Record<string, number> = {}
+  const used = new Set<number>()
+  for (const row of savedRows) {
+    used.add(row.exercise_index)
+    if (!row.exercise_id) continue
+    const prev = result[row.exercise_id]
+    if (prev === undefined || row.exercise_index < prev) result[row.exercise_id] = row.exercise_index
+  }
+  let nextFree = Math.max(-1, ...Array.from(used), ...specs.map(s => s.displayIndex)) + 1
+  for (const spec of specs) {
+    if (result[spec.exerciseId] !== undefined) continue
+    if (!used.has(spec.displayIndex)) {
+      result[spec.exerciseId] = spec.displayIndex
+    } else {
+      result[spec.exerciseId] = nextFree++
+    }
+    used.add(result[spec.exerciseId])
+  }
+  return result
 }
 
 /**
@@ -140,7 +194,7 @@ export function applyFieldUpdate(
   data: SetsState,
   key: string,
   setIdx: number,
-  field: 'primary' | 'secondary',
+  field: 'primary' | 'secondary' | 'rir',
   value: string
 ): SetsStateUpdate {
   const rows = data[key] || []
@@ -193,6 +247,7 @@ export async function saveSet(identity: SetIdentity, payload: SetPayload): Promi
         reps: payload.reps,
         duration_minutes: payload.durationMinutes,
         resistance_note: payload.resistanceNote,
+        ...(payload.rir !== undefined ? { rir: payload.rir } : {}),
         completed: payload.completed,
       },
       { onConflict }
